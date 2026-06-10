@@ -45,15 +45,14 @@ Connect to a host running Supermodel3-PonMi-Streaming and play Sega Model 3 arca
 
 Extract the zip file to any folder.
 
-### 2. Discord authentication
+### 2. Launch StreamReceiver.exe
 
-On first launch, you will be prompted to authenticate with Discord.  
+StreamReceiver will launch and prompt you to authenticate with Discord.
+
+### 3. Discord authentication
+
 Only members of [discord.gg/mNjPJHTTen](https://discord.gg/mNjPJHTTen) can proceed.  
-Re-authentication is required after 30 days of inactivity.
-
-### 3. Launch StreamReceiver.exe
-
-StreamReceiver will automatically search for available hosts.
+Authentication is saved — you will not need to authenticate again unless 30 days have passed without launching the app.
 
 ### 4. Select a host and connect
 
@@ -152,15 +151,14 @@ Supermodel3-PonMi-Streamingを起動しているホストに接続して、WAN�
 
 zipファイルを任意のフォルダに展開してください。
 
-### 2. Discord認証
+### 2. StreamReceiver.exe を起動
 
-初回起動時にDiscord認証が求められます。  
+起動するとDiscord認証が求められます。
+
+### 3. Discord認証
+
 [discord.gg/mNjPJHTTen](https://discord.gg/mNjPJHTTen) のメンバーのみ起動できます。  
-30日間未使用の場合は再認証が必要です。
-
-### 3. StreamReceiver.exe を起動
-
-起動すると自動的にホストを検索します。
+認証情報は保存されるため、毎回認証する必要はありません。30日間起動しなかった場合は再認証が必要です。
 
 ### 4. ホストを選択して接続
 
