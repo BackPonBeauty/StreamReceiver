@@ -45,7 +45,11 @@ Connect to a host running Supermodel3-PonMi-Streaming and play Sega Model 3 arca
 
 Extract the zip file to any folder.
 
-### 2. Launch StreamReceiver.exe
+### 2. Allow through Windows Firewall
+
+Allow `StreamReceiver.exe` through Windows Firewall for both private and public networks.
+
+### 3. Launch StreamReceiver.exe
 
 StreamReceiver will launch and prompt you to authenticate with Discord.
 
@@ -151,7 +155,11 @@ Supermodel3-PonMi-Streamingを起動しているホストに接続して、WAN�
 
 zipファイルを任意のフォルダに展開してください。
 
-### 2. StreamReceiver.exe を起動
+### 2. Windowsファイアウォールで許可
+
+`StreamReceiver.exe` をプライベート・パブリック両方のネットワークで通信を許可してください。
+
+### 3. StreamReceiver.exe を起動
 
 起動するとDiscord認証が求められます。
 
