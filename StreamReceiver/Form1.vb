@@ -525,6 +525,10 @@ Public Class Form1
                             Integer.TryParse(parts(1), w)
                             Integer.TryParse(parts(2), h)
                         End If
+                        Dim codec As String = "H265"
+                        If parts.Length >= 4 Then
+                            codec = parts(3).Trim()
+                        End If
                         Dim videoUdp As New UdpClient(_portVideo)
                         Dim audioUdp As New UdpClient(_portAudio)
                         Thread.Sleep(500)
@@ -537,7 +541,7 @@ Public Class Form1
                         Me.Invoke(Sub()
                                       SetStatus("CONNECTED", Color.FromArgb(0, 220, 100))
                                       btnDisconnect.Enabled = True
-                                      StartReceiving(w, h, videoUdp, audioUdp)
+                                      StartReceiving(w, h, videoUdp, audioUdp, codec)
 
                                       Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
                                       If String.IsNullOrEmpty(nick) Then nick = _ircNick
@@ -559,6 +563,37 @@ Public Class Form1
                                                    End Sub)
                         hbThread.IsBackground = True
                         hbThread.Start()
+
+                        Dim hsReceiveThread As New Thread(Sub()
+                                                              Dim epRecv As New IPEndPoint(IPAddress.Any, 0)
+                                                              _handshakeClient.Client.ReceiveTimeout = 2000
+                                                              Do While _running
+                                                                  Try
+                                                                      Dim data() As Byte = _handshakeClient.Receive(epRecv)
+                                                                      If data IsNot Nothing AndAlso data.Length > 0 Then
+                                                                          Dim msgRecv = System.Text.Encoding.ASCII.GetString(data)
+                                                                          If msgRecv.StartsWith("KICK") Then
+                                                                              Me.Invoke(Sub()
+                                                                                            StopReceiving()
+                                                                                            btnDisconnect.Enabled = False
+                                                                                            btnConnect.Enabled = True
+                                                                                            btnRefresh.Enabled = False
+                                                                                            SetStatus("Kicked: no controller detected.", Color.FromArgb(220, 140, 0))
+                                                                                            MessageBox.Show("You kicked from Host reason no controler detect", "Kicked", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                                                                                        End Sub)
+                                                                              Return
+                                                                          End If
+                                                                      End If
+                                                                  Catch ex As SocketException
+                                                                      ' Timeout, just continue
+                                                                  Catch ex As Exception
+                                                                      Exit Do
+                                                                  End Try
+                                                              Loop
+                                                          End Sub)
+                        hsReceiveThread.IsBackground = True
+                        hsReceiveThread.Start()
+
                         _xinput = New XInputSender()
                         AddHandler _xinput.ControllerDisconnected, AddressOf OnControllerDisconnected
                         _xinput.Start(resolvedIP, _portXInput, SharpDX.XInput.UserIndex.One)
@@ -628,7 +663,7 @@ Public Class Form1
         Return -1  ' 到達不可
     End Function
 
-    Private Sub StartReceiving(w As Integer, h As Integer, udp4 As UdpClient, udp5 As UdpClient)
+    Private Sub StartReceiving(w As Integer, h As Integer, udp4 As UdpClient, udp5 As UdpClient, codec As String)
         pnlHostList.Visible = False
         pnlConnect.Visible = False
         lblStatus.Visible = False
@@ -647,7 +682,7 @@ Public Class Form1
 
         Me.ClientSize = New Size(w, h)
         _renderer = New DxRenderer(pnlVideo.Handle, w, h)
-        _video = New VideoReceiver(w, h, udp4)
+        _video = New VideoReceiver(w, h, udp4, codec)
         _audio = New AudioReceiver(udp5)
         AddHandler _video.ServerDisconnected, Sub()
                                                   Me.Invoke(Sub()
@@ -781,6 +816,7 @@ Public Class Form1
                 btnDisconnect.Enabled = False
                 btnConnect.Enabled = False
                 SetStatus("Disconnected.", Color.FromArgb(150, 150, 150))
+                Await LoadHostsAsync()
             Else
                 Me.Close()
             End If

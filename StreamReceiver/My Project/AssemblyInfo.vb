@@ -12,7 +12,7 @@ Imports System.Runtime.InteropServices
 <Assembly: AssemblyDescription("")>
 <Assembly: AssemblyCompany("")>
 <Assembly: AssemblyProduct("StreamReceiver")>
-<Assembly: AssemblyCopyright("Copyright ©  2026")>
+<Assembly: AssemblyCopyright("Copyright © 2026 BackPonBeauty")>
 <Assembly: AssemblyTrademark("")>
 
 <Assembly: ComVisible(False)>

@@ -42,22 +42,26 @@ Public Class VideoReceiver
 
     Public Event ServerDisconnected()
 
-    Public Sub New(w As Integer, h As Integer, udpClient As UdpClient)
+    Private _codec As String = "H265"
+
+    Public Sub New(w As Integer, h As Integer, udpClient As UdpClient, Optional codec As String = "H265")
         Width = w
         Height = h
         FrameSize = w * h * 4
         ReDim _bufA(FrameSize - 1)
         ReDim _bufB(FrameSize - 1)
         _udpClient = udpClient
+        _codec = codec
     End Sub
 
     Public Sub Start()
         _running = True
 
+        Dim codecArg As String = If(_codec.ToUpper() = "H264", "h264", "hevc")
         _ffmpeg = New Process()
         With _ffmpeg.StartInfo
             .FileName = "ffmpeg.exe"
-            .Arguments = $"-fflags nobuffer -flags low_delay -f h264 -i pipe:0 -vf ""vflip,scale={Width}:{Height}"" -f rawvideo -pix_fmt bgra pipe:1"
+            .Arguments = $"-fflags nobuffer -flags low_delay -f {codecArg} -i pipe:0 -vf ""vflip,scale={Width}:{Height}"" -f rawvideo -pix_fmt bgra pipe:1"
             .UseShellExecute = False
             .RedirectStandardInput = True
             .RedirectStandardOutput = True
@@ -85,6 +89,8 @@ Public Class VideoReceiver
         Dim sock = _udpClient.Client
         sock.ReceiveTimeout = 10000
 
+        Dim isH264 As Boolean = (_codec.ToUpper() = "H264")
+
         Do While _running
             Try
                 ' ゼロアロケーション受信
@@ -92,40 +98,86 @@ Public Class VideoReceiver
                 lastReceived = DateTime.Now
                 If received < 13 Then Continue Do
 
-                ' Skip(12).ToArray() の代わりにオフセット直接参照
-                Dim nalType = _rtpBuf(12) And &H1F
+                If Not isH264 Then
+                    ' HEVC NAL Type is 6 bits from byte 12
+                    Dim nalType = (_rtpBuf(12) And &H7E) >> 1
 
-                If nalType >= 1 AndAlso nalType <= 23 Then
-                    If nalType = 7 OrElse nalType = 8 Then _waitingForKeyframe = False
-                    If Not _waitingForKeyframe Then
-                        WriteNalToFFmpeg(_rtpBuf, 12, received - 12)
-                    End If
-
-                ElseIf nalType = 28 Then
-                    Dim fuHeader = _rtpBuf(13)
-                    Dim startBit = (fuHeader And &H80) <> 0
-                    Dim endBit = (fuHeader And &H40) <> 0
-                    Dim fuNalType = fuHeader And &H1F
-
-                    If startBit Then
-                        If fuNalType = 7 OrElse fuNalType = 8 OrElse fuNalType = 5 Then
-                            _waitingForKeyframe = False
+                    If nalType >= 0 AndAlso nalType <= 31 Then
+                        If nalType = 32 OrElse nalType = 33 OrElse nalType = 34 Then _waitingForKeyframe = False
+                        If Not _waitingForKeyframe Then
+                            WriteNalToFFmpeg(_rtpBuf, 12, received - 12)
                         End If
-                        _fuBuffer.SetLength(0)
-                        Dim nalHeader = CByte((_rtpBuf(12) And &HE0) Or fuNalType)
-                        _fuBuffer.WriteByte(nalHeader)
-                        _fuStarted = True
-                    End If
 
-                    If _fuStarted Then
-                        ' payload[2..] = _rtpBuf[14..]
-                        _fuBuffer.Write(_rtpBuf, 14, received - 14)
-                        If endBit Then
-                            If Not _waitingForKeyframe Then
-                                Dim nal = _fuBuffer.GetBuffer()
-                                WriteNalToFFmpeg(nal, 0, CInt(_fuBuffer.Length))
+                    ElseIf nalType = 49 Then
+                        Dim fuHeader = _rtpBuf(14)
+                        Dim startBit = (fuHeader And &H80) <> 0
+                        Dim endBit = (fuHeader And &H40) <> 0
+                        Dim fuNalType = fuHeader And &H3F
+
+                        If startBit Then
+                            If fuNalType = 32 OrElse fuNalType = 33 OrElse fuNalType = 34 OrElse fuNalType = 19 OrElse fuNalType = 20 Then
+                                _waitingForKeyframe = False
                             End If
-                            _fuStarted = False
+                            _fuBuffer.SetLength(0)
+                            
+                            ' Reconstruct 2-byte HEVC NAL Header
+                            Dim nalHeader0 = CByte((fuNalType << 1) Or (_rtpBuf(12) And &H01))
+                            Dim nalHeader1 = _rtpBuf(13)
+                            _fuBuffer.WriteByte(nalHeader0)
+                            _fuBuffer.WriteByte(nalHeader1)
+                            _fuStarted = True
+                        End If
+
+                        If _fuStarted Then
+                            ' payload data starts at RTP offset 15
+                            _fuBuffer.Write(_rtpBuf, 15, received - 15)
+                            If endBit Then
+                                If Not _waitingForKeyframe Then
+                                    Dim nal = _fuBuffer.GetBuffer()
+                                    WriteNalToFFmpeg(nal, 0, CInt(_fuBuffer.Length))
+                                End If
+                                _fuStarted = False
+                            End If
+                        End If
+                    End If
+                Else
+                    ' H264 NAL Type is 5 bits from byte 12
+                    Dim nalType = _rtpBuf(12) And &H1F
+
+                    If nalType >= 1 AndAlso nalType <= 23 Then
+                        If nalType = 7 OrElse nalType = 8 OrElse nalType = 5 Then _waitingForKeyframe = False
+                        If Not _waitingForKeyframe Then
+                            WriteNalToFFmpeg(_rtpBuf, 12, received - 12)
+                        End If
+
+                    ElseIf nalType = 28 Then ' H264 FU-A
+                        Dim fuHeader = _rtpBuf(13)
+                        Dim startBit = (fuHeader And &H80) <> 0
+                        Dim endBit = (fuHeader And &H40) <> 0
+                        Dim fuNalType = fuHeader And &H1F
+
+                        If startBit Then
+                            If fuNalType = 7 OrElse fuNalType = 8 OrElse fuNalType = 5 Then
+                                _waitingForKeyframe = False
+                            End If
+                            _fuBuffer.SetLength(0)
+
+                            ' Reconstruct 1-byte H.264 NAL Header
+                            Dim nalHeader = CByte((_rtpBuf(12) And &H60) Or fuNalType)
+                            _fuBuffer.WriteByte(nalHeader)
+                            _fuStarted = True
+                        End If
+
+                        If _fuStarted Then
+                            ' payload data starts at RTP offset 14
+                            _fuBuffer.Write(_rtpBuf, 14, received - 14)
+                            If endBit Then
+                                If Not _waitingForKeyframe Then
+                                    Dim nal = _fuBuffer.GetBuffer()
+                                    WriteNalToFFmpeg(nal, 0, CInt(_fuBuffer.Length))
+                                End If
+                                _fuStarted = False
+                            End If
                         End If
                     End If
                 End If
