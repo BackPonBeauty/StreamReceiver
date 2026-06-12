@@ -17,6 +17,7 @@ Imports Firebase.Auth
 Imports Firebase.Auth.Providers
 Imports Firebase.Database
 Imports Firebase.Database.Query
+Imports Firebase.Database.Streaming
 Imports Newtonsoft.Json
 
 Public Class SlotInfo
@@ -46,6 +47,9 @@ Public Class HostInfo
     <JsonProperty("gametitle")>
     Public Property GameTitle As String
 
+    <JsonProperty("servername")>
+    Public Property ServerName As String
+
     <JsonProperty("slot1")>
     Public Property Slot1 As SlotInfo
 
@@ -71,11 +75,25 @@ Public Class HostInfo
     End Property
 End Class
 
+Public Class ChatMessage
+    <JsonProperty("username")>
+    Public Property Username As String
+
+    <JsonProperty("message")>
+    Public Property Message As String
+
+    <JsonProperty("badge")>
+    Public Property Badge As String
+
+    <JsonProperty("timestamp")>
+    Public Property Timestamp As Long
+End Class
+
 Public Class FirebaseMatchingClient
     Private Const ApiKey As String = "YourApiKey"
     Private Const DbUrl As String = "https://YourDbUrl.firebasedatabase.app"
     Private Const AuthDomain As String = "YourAuthDomain"
-    Private Const TimeoutMinutes As Integer = 360
+    Private Const TimeoutMinutes As Integer = 10
 
     Private dbClient As FirebaseClient
     Private authClient As FirebaseAuthClient
@@ -97,9 +115,9 @@ Public Class FirebaseMatchingClient
                 .AuthTokenAsyncFactory = Async Function() Await userCredential.User.GetIdTokenAsync()
             })
 
-            Debug.WriteLine("[Firebase] ログイン成功 UID: " & userCredential.User.Uid)
+            Debug.WriteLine("[Firebase] Login Success UID: " & userCredential.User.Uid)
         Catch ex As Exception
-            Debug.WriteLine("[ERROR] Firebase初期化失敗: " & ex.Message)
+            Debug.WriteLine("[ERROR] Firebase Init Failed: " & ex.Message)
         End Try
     End Function
 
@@ -115,17 +133,17 @@ Public Class FirebaseMatchingClient
 
             For Each host In hosts
                 If host.Object IsNot Nothing Then
-                    Debug.WriteLine($"[Firebase] ホスト={host.Key} timestamp={host.Object.Timestamp} diff={nowUnix - host.Object.Timestamp}ms")
+                    Debug.WriteLine($"[Firebase] Host={host.Key} timestamp={host.Object.Timestamp} diff={nowUnix - host.Object.Timestamp}ms")
                     Dim elapsed = nowUnix - host.Object.Timestamp
                     If elapsed <= timeoutMs Then
                         result(host.Key) = host.Object
                     Else
-                        Debug.WriteLine($"[Firebase] タイムアウト除外: {host.Key}")
+                        Debug.WriteLine($"[Firebase] Timeout Excluded: {host.Key}")
                     End If
                 End If
             Next
         Catch ex As Exception
-            Debug.WriteLine("[ERROR] ホスト一覧取得失敗: " & ex.Message)
+            Debug.WriteLine("[ERROR] Failed to fetch host list: " & ex.Message)
         End Try
         Return result
     End Function
@@ -139,6 +157,30 @@ Public Class FirebaseMatchingClient
         Catch ex As Exception
             Debug.WriteLine("[ERROR] UpdateSlotUserAsync: " & ex.Message)
         End Try
+    End Function
+
+    ' -------------------------------------------------------
+    ' チャットメッセージ送信
+    ' -------------------------------------------------------
+    Public Async Function SendChatMessageAsync(hostId As String, username As String, message As String) As Task
+        Try
+            Dim chatMsg As New ChatMessage() With {
+                .Username = username,
+                .Message = message,
+                .Badge = "",
+                .Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }
+            Await dbClient.Child("hosts").Child(hostId).Child("chat").PostAsync(chatMsg)
+        Catch ex As Exception
+            Debug.WriteLine("[ERROR] SendChatMessageAsync: " & ex.Message)
+        End Try
+    End Function
+
+    ' -------------------------------------------------------
+    ' チャット監視のストリーム取得
+    ' -------------------------------------------------------
+    Public Function GetChatObservable(hostId As String) As IObservable(Of FirebaseEvent(Of ChatMessage))
+        Return dbClient.Child("hosts").Child(hostId).Child("chat").AsObservable(Of ChatMessage)()
     End Function
 
 End Class

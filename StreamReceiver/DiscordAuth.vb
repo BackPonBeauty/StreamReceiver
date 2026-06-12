@@ -25,9 +25,9 @@ Public Class DiscordAuth
     Private Const SessionFileName As String = "discord_session.dat"
 
     ' =========================================================================================
-    ' ⚠️ Discord 認証情報埋め込みエリア
-    ' ※ 配布用バイナリのビルド時は、ここに本番の認証情報を直接書き込んでください。
-    ' ※ GitHubへコミット・公開する際は、この部分を必ずダミー文字列に戻してください。
+    ' ⚠️ Discord Credentials Embedding Area
+    ' * When building the production binary, write the actual credentials here.
+    ' * When committing to GitHub, always replace this part with dummy strings.
     ' =========================================================================================
     Private Const DiscordClientId As String = "YourClientId"
     Private Const DiscordClientSecret As String = "YourClientSecret"
@@ -44,36 +44,36 @@ Public Class DiscordAuth
         Public Property Username As String
     End Class
 
-    ' セッション保存用の構造
+    ' Session storage structure
     Private Class SessionData
         Public Property RefreshToken As String
         Public Property SavedAt As DateTime
     End Class
 
     ''' <summary>
-    ''' DiscordでのOAuth2認証およびサーバー参加確認を行います。30日以内のキャッシュトークンがある場合は自動更新します。
+    ''' Performs OAuth2 authentication with Discord and verifies server membership. Automatically refreshes cached token if within 30 days.
     ''' </summary>
     Public Shared Async Function AuthenticateAndCheckMembershipAsync(statusCallback As Action(Of String)) As Task(Of AuthResult)
         Dim result As New AuthResult()
 
-        ' 簡易チェック
+        ' Simple check
         If String.IsNullOrEmpty(DiscordClientId) OrElse DiscordClientId = "YOUR_CLIENT_ID" OrElse
            String.IsNullOrEmpty(DiscordClientSecret) OrElse DiscordClientSecret = "YOUR_CLIENT_SECRET" OrElse
            String.IsNullOrEmpty(DiscordBotToken) OrElse DiscordBotToken = "YOUR_BOT_TOKEN" OrElse
            String.IsNullOrEmpty(DiscordGuildId) OrElse DiscordGuildId = "YOUR_GUILD_ID" Then
             result.Success = False
-            result.ErrorMessage = "Discordの認証情報が埋め込まれていません。DiscordAuth.vbのコード内定数を確認してください。"
+            result.ErrorMessage = "Discord credentials have not been embedded. Please check the constants in the DiscordAuth.vb code."
             Return result
         End If
 
         Dim accessToken As String = ""
         Dim newRefreshToken As String = ""
 
-        ' 1. ローカルに保存されたセッションの読み込みと確認
+        ' 1. Load and verify saved session locally
         Dim session = LoadSession()
         If session IsNot Nothing AndAlso (DateTime.Now - session.SavedAt).TotalDays < 30 Then
-            statusCallback("前回のセッションを自動更新中...")
-            ' リフレッシュトークンを使用してトークンを更新
+            statusCallback("Updating previous session automatically...")
+            ' Refresh the token using the refresh token
             Dim tokenJson = Await RefreshAccessTokenAsync(DiscordClientId, DiscordClientSecret, session.RefreshToken)
             If Not String.IsNullOrEmpty(tokenJson) Then
                 accessToken = ParseJsonValue(tokenJson, "access_token")
@@ -84,12 +84,12 @@ Public Class DiscordAuth
             End If
         End If
 
-        ' 2. 自動更新できなかった場合はブラウザによるOAuth認証を行う
+        ' 2. Perform browser-based OAuth authentication if automatic refresh failed
         If String.IsNullOrEmpty(accessToken) Then
             Dim redirectUri As String = "http://localhost:5050/"
             Dim state As String = Guid.NewGuid().ToString("N")
 
-            ' HttpListener の起動
+            ' Start HttpListener
             Dim listener As HttpListener = Nothing
             Try
                 listener = New HttpListener()
@@ -97,24 +97,24 @@ Public Class DiscordAuth
                 listener.Start()
             Catch ex As Exception
                 result.Success = False
-                result.ErrorMessage = "ローカルポート5050の待機開始に失敗しました: " & ex.Message
+                result.ErrorMessage = "Failed to start listener on local port 5050: " & ex.Message
                 Return result
             End Try
 
             Try
-                ' ブラウザでOAuth認証ページを開く
+                ' Open OAuth authentication page in browser
                 Dim authUrl As String = $"https://discord.com/api/oauth2/authorize?client_id={DiscordClientId}&redirect_uri={Uri.EscapeDataString(redirectUri)}&response_type=code&scope=identify&state={state}"
-                statusCallback("ブラウザでDiscord認証を行ってください...")
+                statusCallback("Please perform Discord authentication in your browser...")
                 System.Diagnostics.Process.Start(authUrl)
 
-                ' 3. 認証コード受信の待機 (タイムアウト 60秒)
+                ' 3. Wait for authorization code (60 seconds timeout)
                 Dim listenTask = listener.GetContextAsync()
                 Dim delayTask = Task.Delay(60000)
                 Dim completedTask = Await Task.WhenAny(listenTask, delayTask)
 
                 If completedTask Is delayTask Then
                     result.Success = False
-                    result.ErrorMessage = "Discord認証がタイムアウトしました (60秒)。"
+                    result.ErrorMessage = "Discord authentication timed out (60 seconds)."
                     Return result
                 End If
 
@@ -125,14 +125,14 @@ Public Class DiscordAuth
                 Dim code As String = request.QueryString("code")
                 Dim rcvState As String = request.QueryString("state")
 
-                ' レスポンス画面を返す
+                ' Return response screen
                 Dim responseString As String = ""
                 If String.IsNullOrEmpty(code) OrElse rcvState <> state Then
                     responseString = "<html><body><h2>Authentication Failed</h2><p>Invalid state or missing code.</p></body></html>"
                     result.Success = False
-                    result.ErrorMessage = "認証に失敗しました (state不一致またはコードなし)"
+                    result.ErrorMessage = "Authentication failed (State mismatch or code missing)"
                 Else
-                    responseString = "<html><head><meta charset='utf-8'></head><body><h2>認証完了</h2><p>認証が成功しました。このウィンドウを閉じてアプリに戻ってください。</p></body></html>"
+                    responseString = "<html><head><meta charset='utf-8'></head><body><h2>Authentication Complete</h2><p>Authentication was successful. Please close this window and return to the application.</p></body></html>"
                 End If
 
                 Dim buffer As Byte() = Encoding.UTF8.GetBytes(responseString)
@@ -146,9 +146,9 @@ Public Class DiscordAuth
                     Return result
                 End If
 
-                statusCallback("トークンを取得中...")
+                statusCallback("Obtaining token...")
 
-                ' アクセストークンの取得
+                ' Obtain access token
                 Dim tokenParams As New Dictionary(Of String, String) From {
                     {"client_id", DiscordClientId},
                     {"client_secret", DiscordClientSecret},
@@ -160,7 +160,7 @@ Public Class DiscordAuth
                 Dim tokenResponse = Await HttpClient.PostAsync("https://discord.com/api/v10/oauth2/token", tokenContent)
                 If Not tokenResponse.IsSuccessStatusCode Then
                     result.Success = False
-                    result.ErrorMessage = "トークンの取得に失敗しました: " & tokenResponse.StatusCode.ToString()
+                    result.ErrorMessage = "Failed to obtain token: " & tokenResponse.StatusCode.ToString()
                     Return result
                 End If
 
@@ -172,13 +172,13 @@ Public Class DiscordAuth
                     SaveSession(newRefreshToken)
                 Else
                     result.Success = False
-                    result.ErrorMessage = "アクセストークンの解析に失敗しました。"
+                    result.ErrorMessage = "Failed to parse access token."
                     Return result
                 End If
 
             Catch ex As Exception
                 result.Success = False
-                result.ErrorMessage = "認証処理中に例外が発生しました: " & ex.Message
+                result.ErrorMessage = "An exception occurred during authentication: " & ex.Message
                 Return result
             Finally
                 If listener IsNot Nothing Then
@@ -192,17 +192,17 @@ Public Class DiscordAuth
         End If
 
         Try
-            statusCallback("ユーザー情報を取得中...")
+            statusCallback("Retrieving user info...")
 
-            ' 3. ユーザープロファイル (@me) の取得
+            ' 3. Retrieve user profile (@me)
             Dim userRequest As New HttpRequestMessage(HttpMethod.Get, "https://discord.com/api/v10/users/@me")
             userRequest.Headers.Authorization = New System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken)
             Dim userResponse = Await HttpClient.SendAsync(userRequest)
             If Not userResponse.IsSuccessStatusCode Then
-                ' セッションが古くなっている可能性があるのでセッション削除
+                ' Session might be stale, delete session
                 DeleteSession()
                 result.Success = False
-                result.ErrorMessage = "ユーザー情報の取得に失敗しました: " & userResponse.StatusCode.ToString()
+                result.ErrorMessage = "Failed to retrieve user info: " & userResponse.StatusCode.ToString()
                 Return result
             End If
 
@@ -213,9 +213,9 @@ Public Class DiscordAuth
             result.UserId = userId
             result.Username = username
 
-            statusCallback("サーバー参加状況を確認中...")
+            statusCallback("Verifying server membership...")
 
-            ' 4. Bot Token を用いて、指定したサーバー(Guild)に参加しているか確認
+            ' 4. Use Bot Token to verify membership in specified guild
             Dim memberRequest As New HttpRequestMessage(HttpMethod.Get, $"https://discord.com/api/v10/guilds/{DiscordGuildId}/members/{userId}")
             memberRequest.Headers.Authorization = New System.Net.Http.Headers.AuthenticationHeaderValue("Bot", DiscordBotToken)
             Dim memberResponse = Await HttpClient.SendAsync(memberRequest)
@@ -226,22 +226,22 @@ Public Class DiscordAuth
             ElseIf memberResponse.StatusCode = HttpStatusCode.NotFound Then
                 result.Success = True
                 result.UserJoined = False
-                result.ErrorMessage = "指定されたDiscordサーバーに参加していません。"
+                result.ErrorMessage = "You are not a member of the designated Discord server."
             Else
                 result.Success = False
-                result.ErrorMessage = "サーバー参加状況の確認に失敗しました: " & memberResponse.StatusCode.ToString()
+                result.ErrorMessage = "Failed to verify server membership: " & memberResponse.StatusCode.ToString()
             End If
 
         Catch ex As Exception
             result.Success = False
-            result.ErrorMessage = "認証処理中に例外が発生しました: " & ex.Message
+            result.ErrorMessage = "An exception occurred during authentication: " & ex.Message
         End Try
 
         Return result
     End Function
 
     ''' <summary>
-    ''' リフレッシュトークンを使用してアクセストークンを再取得します。
+    ''' Retrieves access token again using a refresh token.
     ''' </summary>
     Private Shared Async Function RefreshAccessTokenAsync(clientId As String, clientSecret As String, refreshToken As String) As Task(Of String)
         Try
@@ -262,7 +262,7 @@ Public Class DiscordAuth
     End Function
 
     ''' <summary>
-    ''' セッション情報を保存します。
+    ''' Saves session information.
     ''' </summary>
     Private Shared Sub SaveSession(refreshToken As String)
         Try
@@ -272,12 +272,12 @@ Public Class DiscordAuth
                 writer.Write(DateTime.Now.ToBinary())
             End Using
         Catch ex As Exception
-            Debug.WriteLine("セッションの保存に失敗しました: " & ex.Message)
+            Debug.WriteLine("Failed to save session: " & ex.Message)
         End Try
     End Sub
 
     ''' <summary>
-    ''' セッション情報を読み込みします。
+    ''' Loads session information.
     ''' </summary>
     Private Shared Function LoadSession() As SessionData
         Try
@@ -296,7 +296,7 @@ Public Class DiscordAuth
     End Function
 
     ''' <summary>
-    ''' セッション情報を削除します。
+    ''' Deletes session information.
     ''' </summary>
     Private Shared Sub DeleteSession()
         Try
@@ -313,7 +313,7 @@ Public Class DiscordAuth
     End Function
 
     ''' <summary>
-    ''' JSONから指定したキーの文字列値を抽出する簡易ヘルパー
+    ''' Simple helper to extract string values for a specified key from JSON.
     ''' </summary>
     Private Shared Function ParseJsonValue(json As String, key As String) As String
         Try
@@ -321,15 +321,15 @@ Public Class DiscordAuth
             Dim index As Integer = json.IndexOf(searchKey)
             If index < 0 Then Return ""
 
-            ' キーの後ろの ":" を探す
+            ' Find ":" after the key
             Dim colonIndex As Integer = json.IndexOf(":", index + searchKey.Length)
             If colonIndex < 0 Then Return ""
 
-            ' 値の開始位置（ダブルクォーテーション）を探す
+            ' Find start of value (double quote)
             Dim quoteStart As Integer = json.IndexOf("""", colonIndex)
             If quoteStart < 0 Then Return ""
 
-            ' 値の終了位置を探す
+            ' Find end of value
             Dim quoteEnd As Integer = json.IndexOf("""", quoteStart + 1)
             If quoteEnd < 0 Then Return ""
 

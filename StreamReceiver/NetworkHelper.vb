@@ -27,11 +27,11 @@ Public Class NetworkHelper
                 client.Send(dummyData, dummyData.Length, hostEndpoint)
             Next
 
-            Debug.WriteLine($"[PunchHole] Port {localPort} → {hostIP}:{hostPort} 完了")
+            Debug.WriteLine($"[PunchHole] Port {localPort} → {hostIP}:{hostPort} Completed")
             Return client  ' Closeしない
 
         Catch ex As Exception
-            Debug.WriteLine("[PunchHole] 失敗: " & ex.Message)
+            Debug.WriteLine("[PunchHole] Failed: " & ex.Message)
             Return Nothing
         End Try
     End Function

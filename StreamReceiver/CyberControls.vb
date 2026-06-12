@@ -242,3 +242,73 @@ Public Class CyberListView
         End If
     End Sub
 End Class
+
+Public Class TransparentChatLog
+    Inherits Control
+
+    Private _messages As New List(Of String)()
+    Private ReadOnly _maxLines As Integer = 6
+
+    Public Sub New()
+        SetStyle(ControlStyles.SupportsTransparentBackColor Or
+                 ControlStyles.UserPaint Or
+                 ControlStyles.AllPaintingInWmPaint Or
+                 ControlStyles.OptimizedDoubleBuffer, True)
+        BackColor = Color.Transparent
+        ForeColor = Color.FromArgb(220, 220, 220)
+        Font = New Font("MS Gothic", 9.5F, FontStyle.Bold)
+    End Sub
+
+    Public Sub AppendChat(msg As String)
+        _messages.Add(msg)
+        If _messages.Count > _maxLines Then
+            _messages.RemoveAt(0)
+        End If
+        Invalidate()
+    End Sub
+
+    Public Sub Clear()
+        _messages.Clear()
+        Invalidate()
+    End Sub
+
+    Protected Overrides Sub OnPaint(e As PaintEventArgs)
+        Dim g = e.Graphics
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit
+        
+        Dim fontHeight = Font.Height
+        Dim lineSpacing = 4
+        Dim startY = Height - 5
+        
+        ' Draw messages from bottom to top
+        For i = _messages.Count - 1 To 0 Step -1
+            Dim msg = _messages(i)
+            Dim sz = g.MeasureString(msg, Font, Width)
+            Dim rectHeight = CInt(Math.Ceiling(sz.Height))
+            startY -= rectHeight
+            
+            Dim rect As New Rectangle(5, startY, Width - 10, rectHeight)
+            
+            ' Draw text shadow/outline (black) for high contrast on video background
+            For dx = -1 To 1
+                For dy = -1 To 1
+                    If dx <> 0 OrElse dy <> 0 Then
+                        Using shadowBrush As New SolidBrush(Color.FromArgb(160, 0, 0, 0))
+                            Dim shadowRect = rect
+                            shadowRect.Offset(dx, dy)
+                            g.DrawString(msg, Font, shadowBrush, shadowRect)
+                        End Using
+                    End If
+                Next
+            Next
+            
+            ' Draw main text
+            Using textBrush As New SolidBrush(ForeColor)
+                g.DrawString(msg, Font, textBrush, rect)
+            End Using
+            
+            startY -= lineSpacing
+            If startY < 0 Then Exit For
+        Next
+    End Sub
+End Class
