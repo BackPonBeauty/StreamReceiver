@@ -119,9 +119,9 @@ Public Class VideoReceiver
                                 _waitingForKeyframe = False
                             End If
                             _fuBuffer.SetLength(0)
-                            
+
                             ' Reconstruct 2-byte HEVC NAL Header
-                            Dim nalHeader0 = CByte((fuNalType << 1) Or (_rtpBuf(12) And &H01))
+                            Dim nalHeader0 = CByte((fuNalType << 1) Or (_rtpBuf(12) And &H1))
                             Dim nalHeader1 = _rtpBuf(13)
                             _fuBuffer.WriteByte(nalHeader0)
                             _fuBuffer.WriteByte(nalHeader1)
