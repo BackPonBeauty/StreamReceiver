@@ -224,7 +224,8 @@ Public Class Form1
             .ForeColor = Color.FromArgb(0, 238, 255),
             .Font = New Font("Consolas", 9),
             .BorderStyle = BorderStyle.FixedSingle,
-            .Text = savedNick
+            .Text = savedNick,
+            .ReadOnly = True
         }
 
         pnlConnect.Controls.Add(lblNick)
