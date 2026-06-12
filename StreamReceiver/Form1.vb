@@ -47,6 +47,7 @@ Public Class Form1
     Private _portAudio As Integer
 
     Private _autoRefreshTimer As System.Windows.Forms.Timer
+    Private _chatTimer As System.Windows.Forms.Timer
 
     Private ReadOnly W As Integer = 960
     Private ReadOnly H As Integer = 540
@@ -55,25 +56,20 @@ Public Class Form1
     Private lvHosts As CyberListView
     Private btnRefresh As CyberButton
     Private pnlConnect As CyberPanel
-    Private pnlIrc As CyberPanel
+    Private pnlChatOverlay As Panel
+    Private rtbChatLog As TransparentChatLog
+    Private txtChatInput As TextBox
+    Private txtNick As TextBox
     Private lblSlot As Label
     Private cmbSlot As ComboBox
     Private btnConnect As CyberButton
     Private btnDisconnect As CyberButton
     Private btnLocalMode As CyberButton
     Private lblStatus As Label
-    Private lnkPatreon As LinkLabel
     Private pnlVideo As Panel
-
-    ' IRC Chat
-    Private _irc As IrcTcpClient
-    Private _ircNick As String = ""
-    Private rtbChat As RichTextBox
-    Private txtChatSend As TextBox
-    Private btnChatSend As CyberButton
-    Private txtChannel As TextBox
-    Private btnIrcConnect As CyberButton
-    Private btnIrcToggle As CyberButton  ' streaming中の表示/非表示
+    Private _ircNick As String = ""  ' streaming中の表示/非表示
+    Private lnkPatreon As LinkLabel
+    Private _chatSubscription As IDisposable = Nothing
 
     Public _isLocalMode As Boolean = False
 
@@ -131,7 +127,7 @@ Public Class Form1
             .Location = New Point(8, 44),
             .Size = New Size(924, 184)
         }
-        lvHosts.Columns.Add("HOST IP", 400)
+        lvHosts.Columns.Add("SERVER", 400)
         lvHosts.Columns.Add("P1", 124)
         lvHosts.Columns.Add("P2", 124)
         lvHosts.Columns.Add("P3", 124)
@@ -206,43 +202,24 @@ Public Class Form1
         pnlConnect.Controls.Add(btnConnect)
         pnlConnect.Controls.Add(btnDisconnect)
 
-        ' ---- IRC CHAT パネル ----
-        pnlIrc = New CyberPanel() With {
-            .Title = "IRC CHAT  [ irc.libera.chat #backponbeauty ]",
-            .Location = New Point(10, 346),
-            .Size = New Size(940, 110)
-        }
-
-        ' チャットログ
-        rtbChat = New RichTextBox() With {
-            .Location = New Point(8, 18),
-            .Size = New Size(700, 82),
-            .BackColor = Color.FromArgb(3, 10, 22),
-            .ForeColor = Color.FromArgb(0, 238, 255),
-            .Font = New Font("Consolas", 8),
-            .BorderStyle = BorderStyle.None,
-            .ReadOnly = True,
-            .ScrollBars = RichTextBoxScrollBars.Vertical
-        }
-
-        ' NICK ラベル
+        ' NICK ラベル (Connectパネル内に配置)
         Dim lblNick As New Label() With {
             .Text = "NICK :",
-            .Location = New Point(716, 18),
+            .Location = New Point(230, 22),
             .Size = New Size(46, 20),
             .ForeColor = Color.FromArgb(0, 180, 220),
-            .Font = New Font("Consolas", 8),
+            .Font = New Font("Consolas", 8, FontStyle.Bold),
             .TextAlign = ContentAlignment.MiddleLeft,
             .BackColor = Color.Transparent
         }
 
-        ' ニックネーム入力
+        ' ニックネーム入力 (Connectパネル内に配置)
         Dim savedNick = ConfigurationManager.AppSettings("IrcNick")
         If String.IsNullOrEmpty(savedNick) Then savedNick = "guest"
-        Dim txtNick As New TextBox() With {
+        txtNick = New TextBox() With {
             .Name = "txtNick",
-            .Location = New Point(764, 16),
-            .Size = New Size(100, 22),
+            .Location = New Point(280, 20),
+            .Size = New Size(120, 22),
             .BackColor = Color.FromArgb(3, 10, 22),
             .ForeColor = Color.FromArgb(0, 238, 255),
             .Font = New Font("Consolas", 9),
@@ -250,55 +227,8 @@ Public Class Form1
             .Text = savedNick
         }
 
-        ' JOIN/LEAVEボタン
-        btnIrcConnect = New CyberButton() With {
-            .Text = "JOIN",
-            .Location = New Point(716, 44),
-            .Size = New Size(148, 26),
-            .GlowColor = Color.FromArgb(0, 210, 80),
-            .ForeColor = Color.FromArgb(0, 210, 80)
-        }
-        AddHandler btnIrcConnect.Click, AddressOf IrcConnect_Click
-
-        ' 送信テキストボックス
-        txtChatSend = New TextBox() With {
-            .Location = New Point(716, 80),
-            .Size = New Size(148, 22),
-            .BackColor = Color.FromArgb(3, 10, 22),
-            .ForeColor = Color.FromArgb(0, 238, 255),
-            .Font = New Font("Consolas", 9),
-            .BorderStyle = BorderStyle.FixedSingle
-        }
-        AddHandler txtChatSend.KeyDown, Sub(s, ev)
-                                            If ev.KeyCode = Keys.Enter Then
-                                                IrcSendMessage()
-                                                ev.SuppressKeyPress = True
-                                            End If
-                                        End Sub
-
-        ' SENDボタン
-        btnChatSend = New CyberButton() With {
-            .Text = "SEND",
-            .Location = New Point(872, 76),
-            .Size = New Size(60, 26),
-            .GlowColor = Color.FromArgb(0, 180, 220),
-            .Enabled = False
-        }
-        AddHandler btnChatSend.Click, Sub(s, ev) IrcSendMessage()
-
-        ' txtChannelはコード上の互換性のためダミーとして保持（非表示）
-        txtChannel = New TextBox() With {
-            .Text = "backponbeauty",
-            .Visible = False
-        }
-
-        pnlIrc.Controls.Add(rtbChat)
-        pnlIrc.Controls.Add(lblNick)
-        pnlIrc.Controls.Add(txtNick)
-        pnlIrc.Controls.Add(btnIrcConnect)
-        pnlIrc.Controls.Add(txtChatSend)
-        pnlIrc.Controls.Add(btnChatSend)
-        pnlIrc.Controls.Add(txtChannel)
+        pnlConnect.Controls.Add(lblNick)
+        pnlConnect.Controls.Add(txtNick)
 
         lblStatus = New Label() With {
             .Text = "INITIALIZING...",
@@ -313,7 +243,6 @@ Public Class Form1
         Me.Controls.Add(pnlVideo)
         Me.Controls.Add(pnlHostList)
         Me.Controls.Add(pnlConnect)
-        Me.Controls.Add(pnlIrc)
 
         ' ステータスラベル（フォーム直下、pnlConnect内に重ねて表示）
         lblStatus = New Label() With {
@@ -341,23 +270,46 @@ Public Class Form1
         AddHandler lnkPatreon.LinkClicked, AddressOf lnkPatreon_LinkClicked
         Me.Controls.Add(lnkPatreon)
 
-        ' streaming中のIRCパネルトグルボタン
-        btnIrcToggle = New CyberButton() With {
-            .Text = "CHAT ▲",
-            .Location = New Point(10, 10),
-            .Size = New Size(90, 26),
-            .GlowColor = Color.FromArgb(0, 180, 220),
+        ' Chat Overlay Panel (透過/右上オーバーレイ)
+        pnlChatOverlay = New Panel() With {
+            .Size = New Size(300, 110),
+            .BackColor = Color.Transparent, ' 完全に背景を透明に！
             .Visible = False
         }
-        AddHandler btnIrcToggle.Click, AddressOf IrcToggle_Click
-        Me.Controls.Add(btnIrcToggle)
+
+        rtbChatLog = New TransparentChatLog() With {
+            .Dock = DockStyle.Fill,
+            .ForeColor = Color.FromArgb(220, 220, 220),
+            .Font = New Font("MS Gothic", 9.5F, FontStyle.Bold)
+        }
+
+        txtChatInput = New TextBox() With {
+            .Dock = DockStyle.Bottom,
+            .BackColor = Color.FromArgb(20, 30, 50),
+            .ForeColor = Color.White,
+            .BorderStyle = BorderStyle.FixedSingle,
+            .Font = New Font("MS UI Gothic", 9),
+            .Visible = False
+        }
+        
+        AddHandler txtChatInput.KeyDown, AddressOf txtChatInput_KeyDown
+        AddHandler txtChatInput.TextChanged, Sub() ResetChatTimer()
+
+        _chatTimer = New System.Windows.Forms.Timer()
+        _chatTimer.Interval = 7000
+        AddHandler _chatTimer.Tick, AddressOf ChatTimer_Tick
+
+        pnlChatOverlay.Controls.Add(rtbChatLog)
+        pnlChatOverlay.Controls.Add(txtChatInput)
+        pnlVideo.Controls.Add(pnlChatOverlay)
 
         ' 初期レイアウトを適用
         Form1_Resize(Nothing, EventArgs.Empty)
     End Sub
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs)
-        AddHandler Me.KeyDown, AddressOf OnKeyDown
+        AddHandler Me.KeyDown, AddressOf Form_KeyDown
+        Me.KeyPreview = True
 
         pnlVideo.Width = W
         pnlVideo.Height = H
@@ -366,10 +318,9 @@ Public Class Form1
         ' UI要素を一旦無効化
         pnlHostList.Enabled = False
         pnlConnect.Enabled = False
-        pnlIrc.Enabled = False
 
         ' --- 起動時 Discord 認証開始 ---
-        SetStatus("Discord認証を行ってください...", Color.FromArgb(0, 180, 220))
+        SetStatus("Please complete Discord authentication...", Color.FromArgb(0, 180, 220))
         Dim authResult = Await DiscordAuth.AuthenticateAndCheckMembershipAsync(
             Sub(statusMsg)
                 Me.Invoke(Sub() SetStatus(statusMsg, Color.FromArgb(0, 180, 220)))
@@ -377,7 +328,7 @@ Public Class Form1
         )
 
         If Not authResult.Success Then
-            MessageBox.Show("Discord認証中にエラーが発生しました。" & vbCrLf & authResult.ErrorMessage, "認証エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            MessageBox.Show("An error occurred during Discord authentication." & vbCrLf & authResult.ErrorMessage, "Authentication Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
             SetStatus("Discord authentication failed. Application will close.", Color.FromArgb(220, 60, 60))
             Application.Exit()
             Return
@@ -385,13 +336,13 @@ Public Class Form1
 
         If Not authResult.UserJoined Then
             Dim inviteUrl = DiscordAuth.GetInviteUrl()
-            Dim msg = $"ホストに接続するには、Discordサーバーへの参加が必要です。{vbCrLf}{vbCrLf}現在のユーザー: {authResult.Username}{vbCrLf}{vbCrLf}サーバーに参加しますか？"
-            Dim dialogResult = MessageBox.Show(msg, "Discordサーバー未参加", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
+            Dim msg = $"To connect to the host, you must join our Discord server.{vbCrLf}{vbCrLf}Current User: {authResult.Username}{vbCrLf}{vbCrLf}Would you like to join the server?"
+            Dim dialogResult = MessageBox.Show(msg, "Not a Server Member", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
             If dialogResult = DialogResult.Yes AndAlso Not String.IsNullOrEmpty(inviteUrl) AndAlso inviteUrl.StartsWith("http") Then
                 Try
                     Process.Start(inviteUrl)
                 Catch ex As Exception
-                    MessageBox.Show("ブラウザで招待URLを開けませんでした: " & ex.Message)
+                    MessageBox.Show("Could not open the invite URL in browser: " & ex.Message)
                 End Try
             End If
             SetStatus("Access denied: Not a server member. Application will close.", Color.FromArgb(220, 140, 0))
@@ -400,19 +351,17 @@ Public Class Form1
         End If
 
         ' 認証成功
-        SetStatus($"Discord認証成功: {authResult.Username}", Color.FromArgb(0, 220, 100))
+        SetStatus($"Discord Auth Success: {authResult.Username}", Color.FromArgb(0, 220, 100))
         _discordUsername = authResult.Username
 
         ' NICK入力欄の初期値をDiscordユーザーネームに設定
-        Dim txtNickCtrl = pnlIrc.Controls("txtNick")
-        If txtNickCtrl IsNot Nothing Then
-            txtNickCtrl.Text = authResult.Username
+        If txtNick IsNot Nothing Then
+            txtNick.Text = authResult.Username
         End If
 
         ' UI要素を有効化
         pnlHostList.Enabled = True
         pnlConnect.Enabled = True
-        pnlIrc.Enabled = True
         ' --- 起動時 Discord 認証終了 ---
 
         SetStatus("Connecting to Firebase...", Color.FromArgb(100, 100, 100))
@@ -451,9 +400,10 @@ Public Class Form1
             Dim host = kvp.Value
             Dim ping = Await MeasurePingAsync(host.Ip, 5001)
             Dim pingStr = If(ping >= 0, $"{ping}ms", "---")
+            Dim namePart = If(String.IsNullOrEmpty(host.ServerName), host.Ip, host.ServerName)
             Dim displayName = If(String.IsNullOrEmpty(host.GameTitle),
-                 $"{host.Ip}  [{pingStr}]",
-                 $"{host.Ip}  [{host.GameTitle}]  {pingStr}")
+                 $"{namePart}  [{pingStr}]",
+                 $"{namePart}  [{host.GameTitle}]  {pingStr}")
             Dim item = New ListViewItem(displayName)
             item.Tag = kvp.Key
             For Each slot In {1, 2, 3, 4}
@@ -589,9 +539,12 @@ Public Class Form1
                                       btnDisconnect.Enabled = True
                                       StartReceiving(w, h, videoUdp, audioUdp)
 
-                                      Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), _ircNick, _discordUsername)
-                                      If String.IsNullOrEmpty(nameToWrite) Then nameToWrite = "guest"
+                                      Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+                                      If String.IsNullOrEmpty(nick) Then nick = _ircNick
+                                      If String.IsNullOrEmpty(nick) Then nick = "guest"
+                                      Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
                                       Dim taskUpdate = UpdateFirebaseSlotUserAsync(nameToWrite)
+                                      Dim taskJoinMsg = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> joined")
                                   End Sub)
                         Dim hbThread As New Thread(Sub()
                                                        Do While _running
@@ -678,20 +631,19 @@ Public Class Form1
     Private Sub StartReceiving(w As Integer, h As Integer, udp4 As UdpClient, udp5 As UdpClient)
         pnlHostList.Visible = False
         pnlConnect.Visible = False
-        pnlIrc.Visible = False
         lblStatus.Visible = False
         lnkPatreon.Visible = False
         pnlVideo.Visible = True
         pnlVideo.BringToFront()
 
-        ' CHATトグルボタンを映像上に表示
-        btnIrcToggle.Visible = True
-        btnIrcToggle.BringToFront()
-
-        ' pnlIrcをstreaming時の位置に移動（映像下部にオーバーレイ）
-        pnlIrc.Location = New Point(0, w * 9 \ 16 - pnlIrc.Height)
-        pnlIrc.Width = w
-        pnlIrc.Visible = False  ' 最初は非表示、トグルで出す
+        ' チャットオーバーレイを表示して購読
+        pnlChatOverlay.Visible = True
+        pnlChatOverlay.Height = 0
+        pnlChatOverlay.BringToFront()
+        pnlChatOverlay.Left = pnlVideo.Width - pnlChatOverlay.Width - 10
+        pnlChatOverlay.Top = 10
+        rtbChatLog.Clear()
+        StartChatSubscription(_selectedHostId)
 
         Me.ClientSize = New Size(w, h)
         _renderer = New DxRenderer(pnlVideo.Handle, w, h)
@@ -716,6 +668,15 @@ Public Class Form1
     End Sub
 
     Private Sub StopReceiving()
+        _chatTimer?.Stop()
+        If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
+            Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+            If String.IsNullOrEmpty(nick) Then nick = _ircNick
+            If String.IsNullOrEmpty(nick) Then nick = "guest"
+            Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
+            Dim taskDisconnect = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> Disconnected")
+        End If
+
         Me.ClientSize = New Size(960, 540)
         _running = False
         _xinput?.Stop()
@@ -734,13 +695,14 @@ Public Class Form1
         pnlVideo.Visible = False
         pnlHostList.Visible = True
         pnlConnect.Visible = True
-        pnlIrc.Location = New Point(10, 346)
-        pnlIrc.Size = New Size(940, 110)
-        pnlIrc.Visible = True
         lblStatus.Visible = True
         lnkPatreon.Visible = True
-        btnIrcToggle.Visible = False
         btnLocalMode.Enabled = True
+
+        ' チャット購読の解除
+        pnlChatOverlay.Visible = False
+        StopChatSubscription()
+
         Form1_Resize(Nothing, EventArgs.Empty)
     End Sub
 
@@ -780,7 +742,7 @@ Public Class Form1
         SetStatus("Disconnected.", Color.FromArgb(150, 150, 150))
     End Sub
 
-    Private Async Sub OnKeyDown(sender As Object, e As KeyEventArgs)
+    Private Async Sub Form_KeyDown(sender As Object, e As KeyEventArgs)
         If e.KeyCode = Keys.F11 Then
             If Me.WindowState = FormWindowState.Maximized AndAlso Me.FormBorderStyle = FormBorderStyle.None Then
                 Me.FormBorderStyle = FormBorderStyle.Sizable
@@ -792,12 +754,25 @@ Public Class Form1
             Return
         End If
 
+        If e.KeyCode = Keys.Enter Then
+            If _running AndAlso Not txtChatInput.Visible Then
+                pnlChatOverlay.Height = 110
+                txtChatInput.Visible = True
+                txtChatInput.Focus()
+                ResetChatTimer()
+                e.Handled = True
+                e.SuppressKeyPress = True
+                Return
+            End If
+        End If
+
         If e.KeyCode = Keys.Escape Then
             If Me.FormBorderStyle = FormBorderStyle.None Then
                 Me.FormBorderStyle = FormBorderStyle.Sizable
                 Me.WindowState = FormWindowState.Normal
                 Me.ClientSize = New Size(W, H + 40)
             ElseIf _running Then
+                Me.WindowState = FormWindowState.Normal
                 StopReceiving()
                 Await CleanUpFirebaseSlotAsync()
                 If Not _isLocalMode Then
@@ -829,30 +804,10 @@ Public Class Form1
             pnlVideo.Left = (cw - panelW) \ 2
             pnlVideo.Top = 0
 
-            ' IRCパネル：映像下部に追従
-            If pnlIrc IsNot Nothing Then
-                pnlIrc.Width = panelW
-                pnlIrc.Location = New Point(pnlVideo.Left, panelH - pnlIrc.Height)
-                ' 内部コントロール追従
-                Dim iw = panelW
-                Dim rightX = iw - 148
-                If rtbChat IsNot Nothing Then rtbChat.Width = iw - 250
-                Dim txtNickCtrl = pnlIrc.Controls("txtNick")
-                If txtNickCtrl IsNot Nothing Then
-                    txtNickCtrl.Left = rightX + 46
-                    txtNickCtrl.Width = iw - (rightX + 46) - 8
-                End If
-                If btnIrcConnect IsNot Nothing Then
-                    btnIrcConnect.Left = rightX
-                    btnIrcConnect.Width = iw - rightX - 8
-                End If
-                If txtChatSend IsNot Nothing Then
-                    txtChatSend.Left = rightX
-                    txtChatSend.Width = iw - rightX - 70
-                End If
-                If btnChatSend IsNot Nothing Then
-                    btnChatSend.Left = iw - 68
-                End If
+            ' チャットオーバーレイ：映像右上に追従
+            If pnlChatOverlay IsNot Nothing Then
+                pnlChatOverlay.Left = pnlVideo.Width - pnlChatOverlay.Width - 10
+                pnlChatOverlay.Top = 10
             End If
         Else
             ' 通常UI：各パネルを幅に追従
@@ -861,7 +816,7 @@ Public Class Form1
 
             If pnlHostList IsNot Nothing Then
                 pnlHostList.Width = pw
-                pnlHostList.Height = ch - 14 - 72 - 110 - 20 - margin * 3
+                pnlHostList.Height = ch - 14 - 72 - 20 - margin * 4
                 If lvHosts IsNot Nothing Then
                     lvHosts.Width = pnlHostList.Width - 16
                     lvHosts.Height = pnlHostList.Height - 48
@@ -891,38 +846,19 @@ Public Class Form1
                 End If
             End If
 
-            If pnlIrc IsNot Nothing Then
-                pnlIrc.Width = pw
-                pnlIrc.Top = pnlConnect.Top + pnlConnect.Height + margin
-                Dim iw = pnlIrc.Width
-                If rtbChat IsNot Nothing Then rtbChat.Width = iw - 250
-                Dim rightX = iw - 148
-                Dim txtNickCtrl = pnlIrc.Controls("txtNick")
-                If txtNickCtrl IsNot Nothing Then
-                    txtNickCtrl.Left = rightX + 46
-                    txtNickCtrl.Width = iw - (rightX + 46) - 8
-                End If
-                If btnIrcConnect IsNot Nothing Then
-                    btnIrcConnect.Left = rightX
-                    btnIrcConnect.Width = iw - rightX - 8
-                End If
-                If txtChatSend IsNot Nothing Then
-                    txtChatSend.Left = rightX
-                    txtChatSend.Width = iw - rightX - 70
-                End If
-                If btnChatSend IsNot Nothing Then
-                    btnChatSend.Left = iw - 68
-                End If
-            End If
-
             If lblStatus IsNot Nothing Then
-                lblStatus.Top = pnlIrc.Top + pnlIrc.Height + 4
+                lblStatus.Top = pnlConnect.Top + pnlConnect.Height + 12
                 lblStatus.Width = pw - 200
             End If
 
             If lnkPatreon IsNot Nothing Then
-                lnkPatreon.Top = pnlIrc.Top + pnlIrc.Height + 4
+                lnkPatreon.Top = pnlConnect.Top + pnlConnect.Height + 12
                 lnkPatreon.Left = cw - 10 - lnkPatreon.Width
+            End If
+
+            If pnlChatOverlay IsNot Nothing Then
+                pnlChatOverlay.Left = pnlVideo.Width - pnlChatOverlay.Width - 10
+                pnlChatOverlay.Top = 10
             End If
 
         End If
@@ -952,139 +888,101 @@ Public Class Form1
             btn.GlowColor = Color.FromArgb(0, 180, 220)
             btn.ForeColor = Color.FromArgb(0, 180, 220)
         End If
-        btn.Invalidate()
     End Sub
 
-    Private Async Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs)
-        _autoRefreshTimer?.Stop()
-        _autoRefreshTimer?.Dispose()
-        Try : _irc?.Disconnect() : Catch : End Try
-        Await CleanUpFirebaseSlotAsync()
-        Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
-        StopReceiving()
+    Private Async Sub txtChatInput_KeyDown(sender As Object, e As KeyEventArgs)
+        If e.KeyCode = Keys.Enter Then
+            Dim msg = txtChatInput.Text.Trim()
+            
+            ' Suppress Enter key to prevent beep sound
+            e.Handled = True
+            e.SuppressKeyPress = True
+            
+            If String.IsNullOrEmpty(msg) Then
+                ' 入力欄がnothingだと height = 0
+                _chatTimer?.Stop()
+                txtChatInput.Text = ""
+                txtChatInput.Visible = False
+                pnlChatOverlay.Height = 0
+                pnlVideo.Focus()
+            Else
+                ' 入力欄に文字があれば送信 heightそのまま
+                txtChatInput.Text = ""
+                txtChatInput.Visible = False
+                pnlVideo.Focus()
+                ResetChatTimer()
+
+                Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+                If String.IsNullOrEmpty(nick) Then nick = _ircNick
+                If String.IsNullOrEmpty(nick) Then nick = "guest"
+
+                ' Save nickname to App.config
+                Try
+                    Dim config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None)
+                    config.AppSettings.Settings("IrcNick").Value = nick
+                    config.Save(ConfigurationSaveMode.Modified)
+                    ConfigurationManager.RefreshSection("appSettings")
+                Catch : End Try
+
+                ' Send to firebase asynchronously
+                Await _firebase.SendChatMessageAsync(_selectedHostId, nick, msg)
+            End If
+        End If
     End Sub
 
-    ' -------------------------------------------------------
-    ' IRC Chat
-    ' -------------------------------------------------------
-    Private Const IRC_SERVER As String = "irc.libera.chat"
-    Private Const IRC_PORT As Integer = 6667
-    Private Const IRC_CHANNEL As String = "backponbeauty"
-
-    Private Sub IrcConnect_Click(sender As Object, e As EventArgs)
-        Dim nick = pnlIrc.Controls("txtNick")?.Text.Trim()
-        If String.IsNullOrEmpty(nick) Then nick = "sr_user"
-        _ircNick = nick
-
-        ' App.configに保存
-        Try
-            Dim config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None)
-            config.AppSettings.Settings("IrcNick").Value = nick
-            config.Save(ConfigurationSaveMode.Modified)
-            ConfigurationManager.RefreshSection("appSettings")
-        Catch : End Try
-
-        btnIrcConnect.Enabled = False
-        AppendChat("Connecting...")
-
-        _irc = New IrcTcpClient(IRC_SERVER, IRC_PORT, _ircNick, IRC_CHANNEL)
-        AddHandler _irc.Connected, AddressOf Irc_Connected
-        AddHandler _irc.MessageReceived, AddressOf Irc_MessageReceived
-        AddHandler _irc.UserJoined, AddressOf Irc_UserJoined
-        AddHandler _irc.UserLeft, AddressOf Irc_UserLeft
-        AddHandler _irc.Disconnected, AddressOf Irc_Disconnected
-        AddHandler _irc.ErrorOccurred, AddressOf Irc_ErrorOccurred
-        _irc.Connect()
+    Private Sub StartChatSubscription(hostId As String)
+        StopChatSubscription()
+        _chatSubscription = _firebase.GetChatObservable(hostId).Subscribe(
+            Sub(chatEvent)
+                If chatEvent.Object IsNot Nothing AndAlso chatEvent.EventType = Firebase.Database.Streaming.FirebaseEventType.InsertOrUpdate Then
+                    Me.Invoke(Sub()
+                                  If String.IsNullOrEmpty(chatEvent.Object.Username) OrElse chatEvent.Object.Username = "SYSTEM" Then
+                                      AppendChat(chatEvent.Object.Message)
+                                  Else
+                                      AppendChat($"{chatEvent.Object.Username}: {chatEvent.Object.Message}")
+                                  End If
+                              End Sub)
+                End If
+            End Sub,
+            Sub(ex) Debug.WriteLine("[ERROR] Chat subscription error: " & ex.Message)
+        )
     End Sub
 
-    Private Sub Irc_Connected()
-        AppendChat("Joined")
-        Me.Invoke(Sub()
-                      btnChatSend.Enabled = True
-                      btnIrcConnect.Enabled = True
-                      btnIrcConnect.Text = "LEAVE"
-                      btnIrcConnect.GlowColor = Color.FromArgb(210, 40, 40)
-                      btnIrcConnect.ForeColor = Color.FromArgb(210, 40, 40)
-                      btnIrcConnect.Invalidate()
-                      RemoveHandler btnIrcConnect.Click, AddressOf IrcConnect_Click
-                      AddHandler btnIrcConnect.Click, AddressOf IrcLeave_Click
-                  End Sub)
-    End Sub
-
-    Private Sub IrcLeave_Click(sender As Object, e As EventArgs)
-        _irc?.Disconnect()
-        _irc = Nothing
-    End Sub
-
-    Private Sub Irc_MessageReceived(nick As String, message As String)
-        AppendChat($"{nick}: {message}")
-    End Sub
-
-    Private Sub Irc_UserJoined(nick As String)
-        AppendChat($"* {nick} joined")
-    End Sub
-
-    Private Sub Irc_UserLeft(nick As String)
-        AppendChat($"* {nick} left")
-    End Sub
-
-    Private Sub Irc_Disconnected()
-        AppendChat("Disconnected.")
-        Me.Invoke(Sub()
-                      btnChatSend.Enabled = False
-                      btnIrcConnect.Enabled = True
-                      btnIrcConnect.Text = "JOIN"
-                      btnIrcConnect.GlowColor = Color.FromArgb(0, 210, 80)
-                      btnIrcConnect.ForeColor = Color.FromArgb(0, 210, 80)
-                      btnIrcConnect.Invalidate()
-                      RemoveHandler btnIrcConnect.Click, AddressOf IrcLeave_Click
-                      AddHandler btnIrcConnect.Click, AddressOf IrcConnect_Click
-                  End Sub)
-    End Sub
-
-    Private Sub Irc_ErrorOccurred(message As String)
-        AppendChat($"[ERROR] {message}")
-        Me.Invoke(Sub()
-                      btnIrcConnect.Enabled = True
-                  End Sub)
-    End Sub
-
-    Private Sub IrcSendMessage()
-        If _irc Is Nothing OrElse txtChatSend.Text.Trim() = "" Then Return
-        _irc.SendMessage(txtChatSend.Text)
-        AppendChat($"{_ircNick}: {txtChatSend.Text}")
-        txtChatSend.Clear()
+    Private Sub StopChatSubscription()
+        _chatSubscription?.Dispose()
+        _chatSubscription = Nothing
     End Sub
 
     Private Sub AppendChat(msg As String)
-        If rtbChat.InvokeRequired Then
-            rtbChat.Invoke(Sub() AppendChat(msg))
+        If rtbChatLog.InvokeRequired Then
+            rtbChatLog.Invoke(Sub() AppendChat(msg))
             Return
         End If
-        If rtbChat.Lines.Length > 15 Then
-            Dim lines As New List(Of String)(rtbChat.Lines)
-            lines.RemoveAt(0)
-            rtbChat.Text = String.Join(vbCrLf, lines)
+        rtbChatLog.AppendChat(msg)
+        
+        ' 新しいメッセージを受信したら、heightを110に、5秒で自動で height = 0に
+        pnlChatOverlay.Height = 110
+        ResetChatTimer()
+    End Sub
+
+    Private Sub ChatTimer_Tick(sender As Object, e As EventArgs)
+        _chatTimer?.Stop()
+        txtChatInput.Visible = False
+        txtChatInput.Text = ""
+        pnlChatOverlay.Height = 0
+        If pnlVideo.Visible Then
+            pnlVideo.Focus()
         End If
-        rtbChat.AppendText(msg & vbCrLf)
-        rtbChat.ScrollToCaret()
+    End Sub
+
+    Private Sub ResetChatTimer()
+        _chatTimer?.Stop()
+        _chatTimer?.Start()
     End Sub
 
     ' -------------------------------------------------------
-    ' IRC パネル表示/非表示トグル（streaming中も使用可）
+    ' Firebase Chat
     ' -------------------------------------------------------
-    Private Sub IrcToggle_Click(sender As Object, e As EventArgs)
-        If pnlIrc.Visible Then
-            pnlIrc.Visible = False
-            btnIrcToggle.Text = "CHAT ▲"
-        Else
-            pnlIrc.Visible = True
-            pnlIrc.BringToFront()
-            btnIrcToggle.BringToFront()
-        End If
-        btnIrcToggle.Text = If(pnlIrc.Visible, "CHAT ▼", "CHAT ▲")
-        btnIrcToggle.Invalidate()
-    End Sub
 
     Private Async Function UpdateFirebaseSlotUserAsync(username As String) As Task
         If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
@@ -1150,8 +1048,25 @@ Public Class Form1
         Try
             Process.Start("https://patreon.com/PonMi")
         Catch ex As Exception
-            MessageBox.Show("PatreonのURLを開くことができませんでした: " & ex.Message)
+            MessageBox.Show("Failed to open Patreon URL: " & ex.Message)
         End Try
+    End Sub
+
+    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs)
+        _autoRefreshTimer?.Stop()
+        StopReceiving()
+        
+        If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
+            Try
+                Task.Run(Async Function()
+                             Await CleanUpFirebaseSlotAsync()
+                             If Not _isLocalMode Then
+                                 Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
+                             End If
+                         End Function).Wait(1500)
+            Catch
+            End Try
+        End If
     End Sub
 
 End Class
