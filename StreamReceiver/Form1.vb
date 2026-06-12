@@ -575,6 +575,11 @@ Public Class Form1
                                                                           Dim msgRecv = System.Text.Encoding.ASCII.GetString(data)
                                                                           If msgRecv.StartsWith("KICK") Then
                                                                               Me.Invoke(Sub()
+                                                                                            If Me.FormBorderStyle = FormBorderStyle.None Then
+                                                                                                Me.FormBorderStyle = FormBorderStyle.Sizable
+                                                                                                Me.WindowState = FormWindowState.Normal
+                                                                                                Me.ClientSize = New Size(w, h + 40)
+                                                                                            End If
                                                                                             StopReceiving()
                                                                                             btnDisconnect.Enabled = False
                                                                                             btnConnect.Enabled = True
@@ -744,6 +749,7 @@ Public Class Form1
 
     Private Async Sub OnControllerDisconnected()
         Me.Invoke(Sub()
+
                       StopReceiving()
                       btnDisconnect.Enabled = False
                       btnConnect.Enabled = True
