@@ -14,6 +14,9 @@ Connect to a host running Supermodel3-PonMi-Streaming and play Sega Model 3 arca
 - **XInput controller input** sent to host over UDP
 - **Ping display** per host
 - **Adaptive bitrate support** — the host dynamically adjusts streaming bitrate based on your network conditions. No client-side configuration required.
+- **Key configuration** — controller button mapping can be customized
+- **Real-time host list updates** — the host list refreshes automatically without manual reload
+- **Keyboard control support** — keyboard input is now supported, enabling use of DirectInput controllers via tools such as JoyToKey
 - **Discord authentication** — only members of [discord.gg/mNjPJHTTen](https://discord.gg/mNjPJHTTen) can launch the app. Re-authentication required after 30 days of inactivity.
 - **F11 fullscreen**
 
@@ -126,6 +129,9 @@ Supermodel3-PonMi-Streamingを起動しているホストに接続して、WAN�
 - **XInputコントローラ入力** をUDPでホストへ送信
 - **Ping表示**
 - **アダプティブビットレート対応** — ホストがクライアントの回線状況に応じてビットレートを自動調整します。クライアント側での設定は不要です。
+- **キーコンフィグ** — コントローラーのボタン割り当てをカスタマイズできます
+- **ホスト一覧のリアルタイム更新** — 手動で更新しなくてもホスト一覧が自動的に最新状態に更新されます
+- **キーボード操作対応** — キーボード入力に対応したことで、JoyToKey などのツールを使えばDirectInput系コントローラーも利用できます（未検証）
 - **Discord認証** — [discord.gg/mNjPJHTTen](https://discord.gg/mNjPJHTTen) のメンバーのみ起動可能。30日間未使用の場合は再認証が必要です。
 - **F11フルスクリーン**
 
