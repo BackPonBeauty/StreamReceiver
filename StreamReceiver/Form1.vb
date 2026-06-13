@@ -70,6 +70,9 @@ Public Class Form1
     Private _ircNick As String = ""  ' streaming中の表示/非表示
     Private lnkPatreon As LinkLabel
     Private _chatSubscription As IDisposable = Nothing
+    Private _connectionStartTime As Long = 0
+    Private _isInitialLoading As Boolean = True
+    Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
 
@@ -580,7 +583,7 @@ Public Class Form1
                                                                                                 Me.WindowState = FormWindowState.Normal
                                                                                                 Me.ClientSize = New Size(w, h + 40)
                                                                                             End If
-                                                                                            StopReceiving()
+                                                                                            StopReceiving("kicked")
                                                                                             btnDisconnect.Enabled = False
                                                                                             btnConnect.Enabled = True
                                                                                             btnRefresh.Enabled = False
@@ -684,7 +687,14 @@ Public Class Form1
         pnlChatOverlay.Left = pnlVideo.Width - pnlChatOverlay.Width - 10
         pnlChatOverlay.Top = 10
         rtbChatLog.Clear()
+        _processedChatKeys.Clear()
+        _isInitialLoading = True
+        _connectionStartTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         StartChatSubscription(_selectedHostId)
+        Task.Run(Async Function()
+                     Await Task.Delay(2000)
+                     _isInitialLoading = False
+                 End Function)
 
         Me.ClientSize = New Size(w, h)
         _renderer = New DxRenderer(pnlVideo.Handle, w, h)
@@ -708,14 +718,14 @@ Public Class Form1
         _renderThread.Start()
     End Sub
 
-    Private Sub StopReceiving()
+    Private Sub StopReceiving(Optional reason As String = "Disconnected")
         _chatTimer?.Stop()
         If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
             Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
             If String.IsNullOrEmpty(nick) Then nick = _ircNick
             If String.IsNullOrEmpty(nick) Then nick = "guest"
             Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
-            Dim taskDisconnect = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> Disconnected")
+            Dim taskDisconnect = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> {reason}")
         End If
 
         Me.ClientSize = New Size(960, 540)
@@ -979,11 +989,18 @@ Public Class Form1
             Sub(chatEvent)
                 If chatEvent.Object IsNot Nothing AndAlso chatEvent.EventType = Firebase.Database.Streaming.FirebaseEventType.InsertOrUpdate Then
                     Me.Invoke(Sub()
+                                  Dim key = chatEvent.Key
+                                  If _processedChatKeys.Contains(key) Then Return
+                                  _processedChatKeys.Add(key)
+
+                                  Dim isNewMessage = Not _isInitialLoading
+                                  Dim msgText = ""
                                   If String.IsNullOrEmpty(chatEvent.Object.Username) OrElse chatEvent.Object.Username = "SYSTEM" Then
-                                      AppendChat(chatEvent.Object.Message)
+                                      msgText = chatEvent.Object.Message
                                   Else
-                                      AppendChat($"{chatEvent.Object.Username}: {chatEvent.Object.Message}")
+                                      msgText = $"{chatEvent.Object.Username}: {chatEvent.Object.Message}"
                                   End If
+                                  AppendChat(msgText, isNewMessage)
                               End Sub)
                 End If
             End Sub,
@@ -996,16 +1013,18 @@ Public Class Form1
         _chatSubscription = Nothing
     End Sub
 
-    Private Sub AppendChat(msg As String)
+    Private Sub AppendChat(msg As String, openOverlay As Boolean)
         If rtbChatLog.InvokeRequired Then
-            rtbChatLog.Invoke(Sub() AppendChat(msg))
+            rtbChatLog.Invoke(Sub() AppendChat(msg, openOverlay))
             Return
         End If
         rtbChatLog.AppendChat(msg)
 
-        ' 新しいメッセージを受信したら、heightを110に、5秒で自動で height = 0に
-        pnlChatOverlay.Height = 110
-        ResetChatTimer()
+        If openOverlay Then
+            ' 新しいメッセージを受信したら、heightを110に、5秒で自動で height = 0に
+            pnlChatOverlay.Height = 110
+            ResetChatTimer()
+        End If
     End Sub
 
     Private Sub ChatTimer_Tick(sender As Object, e As EventArgs)
