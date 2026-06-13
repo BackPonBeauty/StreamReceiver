@@ -9,7 +9,7 @@ Connect to a host running Supermodel3-PonMi-Streaming and play Sega Model 3 arca
 ## ✨ Features
 
 - **Automatic host discovery** via Firebase matchmaking — no manual IP entry needed
-- **H.264 video decoding** via ffmpeg
+- **H.264 / H.265 video decoding** via ffmpeg — codec is automatically selected to match the host
 - **Opus audio playback**
 - **XInput controller input** sent to host over UDP
 - **Ping display** per host
@@ -36,6 +36,7 @@ Connect to a host running Supermodel3-PonMi-Streaming and play Sega Model 3 arca
 - **Esc key** — disconnect and exit the app
 - **Up to 3 connections per host slot** — one player + up to 2 spectators
 - If the current player disconnects, the next spectator becomes the player
+- **Codec auto-switching** — the client automatically uses H.264 or H.265 depending on the host's configuration. No client-side setting required.
 
 ---
 
@@ -53,12 +54,12 @@ Allow `StreamReceiver.exe` through Windows Firewall for both private and public 
 
 StreamReceiver will launch and prompt you to authenticate with Discord.
 
-### 3. Discord authentication
+### 4. Discord authentication
 
 Only members of [discord.gg/mNjPJHTTen](https://discord.gg/mNjPJHTTen) can proceed.  
 Authentication is saved — you will not need to authenticate again unless 30 days have passed without launching the app.
 
-### 4. Select a host and connect
+### 5. Select a host and connect
 
 Choose a host from the list and click Connect. The game will start streaming.
 
@@ -103,7 +104,6 @@ ffmpeg is bundled in compliance with the GPL v3 license.
 - [back_pon_beauty](https://twitch.tv/back_pon_beauty) — Twitch
 
 ---
-
 ---
 
 # 🇯🇵 日本語
@@ -119,7 +119,7 @@ Supermodel3-PonMi-Streamingを起動しているホストに接続して、WAN�
 ## ✨ 機能
 
 - **Firebase自動マッチメイキング** — ホストを自動検出、手動でのIP入力は不要
-- **H.264映像デコード**（ffmpeg使用）
+- **H.264 / H.265 映像デコード**（ffmpeg使用）— ホストの設定に合わせてコーデックを自動切り替え
 - **Opusオーディオ再生**
 - **XInputコントローラ入力** をUDPでホストへ送信
 - **Ping表示**
@@ -146,6 +146,7 @@ Supermodel3-PonMi-Streamingを起動しているホストに接続して、WAN�
 - **Escキー** — 切断してアプリを終了します
 - **各ホストスロットへの接続は最大3人まで** — プレーヤー1人＋観戦者最大2人
 - プレーヤーが切断した場合、次の観戦者が自動的にプレーヤーになります
+- **コーデック自動切り替え** — ホスト側の設定に応じてH.264またはH.265を自動的に選択します。クライアント側での設定は不要です。
 
 ---
 
@@ -163,12 +164,12 @@ zipファイルを任意のフォルダに展開してください。
 
 起動するとDiscord認証が求められます。
 
-### 3. Discord認証
+### 4. Discord認証
 
 [discord.gg/mNjPJHTTen](https://discord.gg/mNjPJHTTen) のメンバーのみ起動できます。  
 認証情報は保存されるため、毎回認証する必要はありません。30日間起動しなかった場合は再認証が必要です。
 
-### 4. ホストを選択して接続
+### 5. ホストを選択して接続
 
 ホスト一覧からホストを選択してConnectをクリックするとストリーミングが始まります。
 
