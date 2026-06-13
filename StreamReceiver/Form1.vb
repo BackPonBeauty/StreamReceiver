@@ -292,7 +292,7 @@ Public Class Form1
             .Font = New Font("MS UI Gothic", 9),
             .Visible = False
         }
-        
+
         AddHandler txtChatInput.KeyDown, AddressOf txtChatInput_KeyDown
         AddHandler txtChatInput.TextChanged, Sub() ResetChatTimer()
 
@@ -936,11 +936,11 @@ Public Class Form1
     Private Async Sub txtChatInput_KeyDown(sender As Object, e As KeyEventArgs)
         If e.KeyCode = Keys.Enter Then
             Dim msg = txtChatInput.Text.Trim()
-            
+
             ' Suppress Enter key to prevent beep sound
             e.Handled = True
             e.SuppressKeyPress = True
-            
+
             If String.IsNullOrEmpty(msg) Then
                 ' 入力欄がnothingだと height = 0
                 _chatTimer?.Stop()
@@ -1002,7 +1002,7 @@ Public Class Form1
             Return
         End If
         rtbChatLog.AppendChat(msg)
-        
+
         ' 新しいメッセージを受信したら、heightを110に、5秒で自動で height = 0に
         pnlChatOverlay.Height = 110
         ResetChatTimer()
@@ -1098,7 +1098,7 @@ Public Class Form1
     Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs)
         _autoRefreshTimer?.Stop()
         StopReceiving()
-        
+
         If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
             Try
                 Task.Run(Async Function()
