@@ -66,11 +66,14 @@ Public Class Form1
     Private btnConnect As CyberButton
     Private btnDisconnect As CyberButton
     Private btnLocalMode As CyberButton
+    Private btnOption As CyberButton
     Private lblStatus As Label
     Private pnlVideo As Panel
     Private _ircNick As String = ""  ' streaming中の表示/非表示
     Private lnkPatreon As LinkLabel
     Private _chatSubscription As IDisposable = Nothing
+    Private _hostsSubscription As IDisposable = Nothing
+    Private _pingCache As New Dictionary(Of String, String)()
     Private _connectionStartTime As Long = 0
     Private _isInitialLoading As Boolean = True
     Private _processedChatKeys As New HashSet(Of String)()
@@ -180,6 +183,18 @@ Public Class Form1
 }
         AddHandler btnLocalMode.Click, AddressOf btnLocalMode_Click
         pnlConnect.Controls.Add(btnLocalMode)
+
+        ' Option/KeyConfig button
+        btnOption = New CyberButton() With {
+            .Name = "btnOption",
+            .Text = "OPTION",
+            .Location = New Point(515, 20),
+            .Size = New Size(75, 34),
+            .GlowColor = Color.FromArgb(0, 180, 220),
+            .ForeColor = Color.FromArgb(0, 180, 220)
+        }
+        AddHandler btnOption.Click, AddressOf btnOption_Click
+        pnlConnect.Controls.Add(btnOption)
 
         btnConnect = New CyberButton() With {
             .Text = "CONNECT",
@@ -314,7 +329,9 @@ Public Class Form1
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs)
         AddHandler Me.KeyDown, AddressOf Form_KeyDown
+        AddHandler Me.KeyUp, AddressOf Form_KeyUp
         Me.KeyPreview = True
+        XInputSender.LoadConfig()
 
         pnlVideo.Width = W
         pnlVideo.Height = H
@@ -371,13 +388,9 @@ Public Class Form1
 
         SetStatus("Connecting to Firebase...", Color.FromArgb(100, 100, 100))
         Await _firebase.InitializeAsync()
-        SetStatus("Fetching host list...", Color.FromArgb(100, 100, 100))
-        Await LoadHostsAsync()
-
-        _autoRefreshTimer = New System.Windows.Forms.Timer()
-        _autoRefreshTimer.Interval = 60000
-        AddHandler _autoRefreshTimer.Tick, AddressOf AutoRefresh_Tick
-        _autoRefreshTimer.Start()
+        SetStatus("Subscribing to host list...", Color.FromArgb(100, 100, 100))
+        If btnRefresh IsNot Nothing Then btnRefresh.Visible = False
+        StartHostsSubscription()
 
         If Not File.Exists("ffmpeg.exe") Then
             Dim result = MessageBox.Show(
@@ -390,27 +403,79 @@ Public Class Form1
         End If
     End Sub
 
-    Private Async Function LoadHostsAsync() As Task
-        _hosts = Await _firebase.GetActiveHostsAsync()
-        lvHosts.Items.Clear()
-        cmbSlot.Items.Clear()
-        btnConnect.Enabled = False
-        'btnConnect.Enabled = True
-        If _hosts.Count = 0 Then
-            SetStatus("No hosts found.", Color.FromArgb(220, 140, 0))
+    Private Sub StartHostsSubscription()
+        _hostsSubscription?.Dispose()
+        _hosts = New Dictionary(Of String, HostInfo)()
+        _hostsSubscription = _firebase.GetHostsObservable().Subscribe(
+            Sub(hostEvent)
+                If hostEvent.Object IsNot Nothing Then
+                    Dim key = hostEvent.Key
+                    Me.Invoke(Sub()
+                                  If hostEvent.EventType = Firebase.Database.Streaming.FirebaseEventType.InsertOrUpdate Then
+                                      _hosts(key) = hostEvent.Object
+                                  ElseIf hostEvent.EventType = Firebase.Database.Streaming.FirebaseEventType.Delete Then
+                                      If _hosts.ContainsKey(key) Then _hosts.Remove(key)
+                                  End If
+                                  UpdateHostsListView()
+                              End Sub)
+                End If
+            End Sub,
+            Sub(ex) Debug.WriteLine("[ERROR] Hosts subscription error: " & ex.Message)
+        )
+    End Sub
+
+    Private Sub UpdateHostsListView()
+        If lvHosts.InvokeRequired Then
+            Me.Invoke(Sub() UpdateHostsListView())
             Return
         End If
 
+        Dim prevSelectedHostId = _selectedHostId
+        Dim prevSelectedSlotText = If(cmbSlot.SelectedItem IsNot Nothing, cmbSlot.SelectedItem.ToString(), "")
+
+        lvHosts.Items.Clear()
+        cmbSlot.Items.Clear()
+        btnConnect.Enabled = False
+
+        Dim nowUnix = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        Dim timeoutMs = 10 * 60 * 1000L
+
+        Dim activeCount As Integer = 0
+
         For Each kvp In _hosts
+            Dim hostId = kvp.Key
             Dim host = kvp.Value
-            Dim ping = Await MeasurePingAsync(host.Ip, 5001)
-            Dim pingStr = If(ping >= 0, $"{ping}ms", "---")
-            Dim namePart = If(String.IsNullOrEmpty(host.ServerName), host.Ip, host.ServerName)
+
+            Dim elapsed = nowUnix - host.Timestamp
+            If elapsed > timeoutMs Then Continue For
+
+            activeCount += 1
+            Dim ip = host.Ip
+            Dim namePart = If(String.IsNullOrEmpty(host.ServerName), ip, host.ServerName)
+
+            Dim pingStr As String = "---"
+            If _pingCache.ContainsKey(ip) Then
+                pingStr = _pingCache(ip)
+            Else
+                _pingCache(ip) = "---"
+                Dim targetIp = ip
+                Task.Run(Async Function()
+                             Dim ping = Await MeasurePingAsync(targetIp, 5001)
+                             Dim pStr = If(ping >= 0, $"{ping}ms", "---")
+                             Me.Invoke(Sub()
+                                           _pingCache(targetIp) = pStr
+                                           UpdateHostsListView()
+                                       End Sub)
+                         End Function)
+            End If
+
             Dim displayName = If(String.IsNullOrEmpty(host.GameTitle),
                  $"{namePart}  [{pingStr}]",
                  $"{namePart}  [{host.GameTitle}]  {pingStr}")
+
             Dim item = New ListViewItem(displayName)
-            item.Tag = kvp.Key
+            item.Tag = hostId
+
             For Each slot In {1, 2, 3, 4}
                 If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey("slot" & slot.ToString()) Then
                     item.SubItems.Add(If(host.Slots("slot" & slot.ToString()).Available, "●", "×"))
@@ -418,11 +483,34 @@ Public Class Form1
                     item.SubItems.Add("")
                 End If
             Next
+
             lvHosts.Items.Add(item)
+
+            If hostId = prevSelectedHostId Then
+                _selectedHostId = hostId
+                If host.Slots IsNot Nothing Then
+                    For Each slotKvp In host.Slots
+                        If slotKvp.Value.Available Then
+                            cmbSlot.Items.Add($"P{slotKvp.Key.Replace("slot", "")}")
+                        End If
+                    Next
+                End If
+                If Not String.IsNullOrEmpty(prevSelectedSlotText) Then
+                    Dim idx = cmbSlot.Items.IndexOf(prevSelectedSlotText)
+                    If idx >= 0 Then
+                        cmbSlot.SelectedIndex = idx
+                        btnConnect.Enabled = True
+                    End If
+                End If
+            End If
         Next
 
-        SetStatus($"{_hosts.Count} host(s) found.", Color.FromArgb(0, 200, 100))
-    End Function
+        If activeCount = 0 Then
+            SetStatus("No hosts found.", Color.FromArgb(220, 140, 0))
+        Else
+            SetStatus($"{activeCount} host(s) found.", Color.FromArgb(0, 200, 100))
+        End If
+    End Sub
 
     Private Sub lvHosts_SlotClicked(slotIndex As Integer, item As ListViewItem)
         _selectedHostId = item.Tag.ToString()
@@ -462,22 +550,11 @@ Public Class Form1
         End If
     End Sub
 
-    Private Async Sub btnRefresh_Click(sender As Object, e As EventArgs)
-        btnRefresh.Enabled = False
-        cmbSlot.Items.Clear()
-        btnConnect.Enabled = False
-        SetStatus("Refreshing...", Color.FromArgb(100, 100, 100))
-        Await LoadHostsAsync()
-        btnRefresh.Enabled = False
-        If _autoRefreshTimer IsNot Nothing Then
-            _autoRefreshTimer.Stop()
-            _autoRefreshTimer.Start()
-        End If
+    Private Sub btnRefresh_Click(sender As Object, e As EventArgs)
+        UpdateHostsListView()
     End Sub
 
-    Private Async Sub AutoRefresh_Tick(sender As Object, e As EventArgs)
-        If _running Then Return
-        Await LoadHostsAsync()
+    Private Sub AutoRefresh_Tick(sender As Object, e As EventArgs)
     End Sub
 
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs)
@@ -497,6 +574,7 @@ Public Class Form1
         End If
         btnConnect.Enabled = False
         btnLocalMode.Enabled = False
+        btnOption.Enabled = False
 
         btnRefresh.Enabled = False
         SetStatus("Connecting...", Color.FromArgb(200, 200, 0))
@@ -622,6 +700,7 @@ Public Class Form1
                           SetStatus("Connection failed.", Color.FromArgb(220, 60, 60))
                           btnConnect.Enabled = True
                           btnLocalMode.Enabled = True
+                          btnOption.Enabled = True
                           btnRefresh.Enabled = False
                       End Sub)
         Catch ex As Exception
@@ -634,6 +713,7 @@ Public Class Form1
                           SetStatus("Error: " & ex.Message, Color.FromArgb(220, 60, 60))
                           btnConnect.Enabled = True
                           btnLocalMode.Enabled = True
+                          btnOption.Enabled = True
                           btnRefresh.Enabled = False
                       End Sub)
         End Try
@@ -757,6 +837,7 @@ Public Class Form1
         lblStatus.Visible = True
         lnkPatreon.Visible = True
         btnLocalMode.Enabled = True
+        btnOption.Enabled = True
 
         ' チャット購読の解除
         pnlChatOverlay.Visible = False
@@ -816,6 +897,19 @@ Public Class Form1
     End Sub
 
     Private Async Sub Form_KeyDown(sender As Object, e As KeyEventArgs)
+        If _running AndAlso Not txtChatInput.Visible Then
+            XInputSender.UpdateKeyState(e.KeyCode, True)
+            For Each kvp In XInputSender.KeyMapping
+                If kvp.Value = e.KeyCode Then
+                    If e.KeyCode <> Keys.Enter Then
+                        e.Handled = True
+                        e.SuppressKeyPress = True
+                    End If
+                    Exit For
+                End If
+            Next
+        End If
+
         If e.KeyCode = Keys.F11 Then
             If Me.WindowState = FormWindowState.Maximized AndAlso Me.FormBorderStyle = FormBorderStyle.None Then
                 Me.FormBorderStyle = FormBorderStyle.Sizable
@@ -854,10 +948,23 @@ Public Class Form1
                 btnDisconnect.Enabled = False
                 btnConnect.Enabled = False
                 SetStatus("Disconnected.", Color.FromArgb(150, 150, 150))
-                Await LoadHostsAsync()
+                UpdateHostsListView()
             Else
                 Me.Close()
             End If
+        End If
+    End Sub
+
+    Private Sub Form_KeyUp(sender As Object, e As KeyEventArgs)
+        If _running Then
+            XInputSender.UpdateKeyState(e.KeyCode, False)
+            For Each kvp In XInputSender.KeyMapping
+                If kvp.Value = e.KeyCode Then
+                    e.Handled = True
+                    e.SuppressKeyPress = True
+                    Exit For
+                End If
+            Next
         End If
     End Sub
 
@@ -962,6 +1069,12 @@ Public Class Form1
             btn.GlowColor = Color.FromArgb(0, 180, 220)
             btn.ForeColor = Color.FromArgb(0, 180, 220)
         End If
+    End Sub
+
+    Private Sub btnOption_Click(sender As Object, e As EventArgs)
+        Using f As New KeyConfigForm()
+            f.ShowDialog(Me)
+        End Using
     End Sub
 
     Private Async Sub txtChatInput_KeyDown(sender As Object, e As KeyEventArgs)
@@ -1136,6 +1249,8 @@ Public Class Form1
     End Sub
 
     Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs)
+        _hostsSubscription?.Dispose()
+        _hostsSubscription = Nothing
         _autoRefreshTimer?.Stop()
         StopReceiving()
 

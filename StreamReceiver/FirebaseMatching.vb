@@ -183,4 +183,11 @@ Public Class FirebaseMatchingClient
         Return dbClient.Child("hosts").Child(hostId).Child("chat").AsObservable(Of ChatMessage)()
     End Function
 
+    ' -------------------------------------------------------
+    ' ホスト監視のストリーム取得
+    ' -------------------------------------------------------
+    Public Function GetHostsObservable() As IObservable(Of FirebaseEvent(Of HostInfo))
+        Return dbClient.Child("hosts").AsObservable(Of HostInfo)()
+    End Function
+
 End Class
