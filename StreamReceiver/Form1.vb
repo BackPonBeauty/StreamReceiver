@@ -48,6 +48,7 @@ Public Class Form1
 
     Private _autoRefreshTimer As System.Windows.Forms.Timer
     Private _chatTimer As System.Windows.Forms.Timer
+    Private _telemetryTimer As System.Windows.Forms.Timer
 
     Private ReadOnly W As Integer = 960
     Private ReadOnly H As Integer = 540
@@ -716,9 +717,16 @@ Public Class Form1
         _renderThread.IsBackground = True
         _renderThread.Priority = ThreadPriority.AboveNormal
         _renderThread.Start()
+
+        _telemetryTimer = New System.Windows.Forms.Timer()
+        _telemetryTimer.Interval = 1500
+        AddHandler _telemetryTimer.Tick, AddressOf TelemetryTimer_Tick
+        _telemetryTimer.Start()
     End Sub
 
     Private Sub StopReceiving(Optional reason As String = "Disconnected")
+        _telemetryTimer?.Stop()
+        _telemetryTimer = Nothing
         _chatTimer?.Stop()
         If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
             Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
@@ -755,6 +763,19 @@ Public Class Form1
         StopChatSubscription()
 
         Form1_Resize(Nothing, EventArgs.Empty)
+    End Sub
+
+    Private Sub TelemetryTimer_Tick(sender As Object, e As EventArgs)
+        If _video IsNot Nothing AndAlso _handshakeClient IsNot Nothing Then
+            Try
+                Dim lossRate As Double = _video.GetAndResetLossRate()
+                Dim msg As String = String.Format(System.Globalization.CultureInfo.InvariantCulture, "STAT {0:F4}", lossRate)
+                Dim data = System.Text.Encoding.ASCII.GetBytes(msg)
+                _handshakeClient.Send(data, data.Length)
+            Catch ex As Exception
+                Debug.WriteLine("[Telemetry] Send error: " & ex.Message)
+            End Try
+        End If
     End Sub
 
     Private Async Sub OnControllerDisconnected()

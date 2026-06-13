@@ -33,6 +33,10 @@ Public Class VideoReceiver
     Private _bufB() As Byte
     Private _frontIsA As Boolean = True
     Private _lock As New Object()
+    
+    Private _totalExpectedPackets As Long = 0
+    Private _totalLostPackets As Long = 0
+    Private _lossLock As New Object()
 
     ' RTPバッファを使い回す（毎パケットnewしない）
     Private _rtpBuf(65535) As Byte
@@ -90,6 +94,7 @@ Public Class VideoReceiver
         sock.ReceiveTimeout = 10000
 
         Dim isH264 As Boolean = (_codec.ToUpper() = "H264")
+        Dim lastSeq As Integer = -1
 
         Do While _running
             Try
@@ -97,6 +102,29 @@ Public Class VideoReceiver
                 Dim received As Integer = sock.ReceiveFrom(_rtpBuf, SocketFlags.None, ep)
                 lastReceived = DateTime.Now
                 If received < 13 Then Continue Do
+
+                Dim seq As UShort = (CUShort(_rtpBuf(2)) << 8) Or _rtpBuf(3)
+                SyncLock _lossLock
+                    If lastSeq = -1 Then
+                        lastSeq = seq
+                        _totalExpectedPackets += 1
+                    Else
+                        Dim diff As Integer = CInt(seq) - lastSeq
+                        If diff < 0 Then
+                            diff += 65536
+                        End If
+
+                        If diff > 0 AndAlso diff < 3000 Then
+                            _totalExpectedPackets += diff
+                            _totalLostPackets += (diff - 1)
+                            lastSeq = seq
+                        ElseIf diff >= 3000 Then
+                            ' Reset tracking
+                            lastSeq = seq
+                            _totalExpectedPackets += 1
+                        End If
+                    End If
+                End SyncLock
 
                 If Not isH264 Then
                     ' HEVC NAL Type is 6 bits from byte 12
@@ -243,6 +271,18 @@ Public Class VideoReceiver
             Dim front() As Byte = If(_frontIsA, _bufA, _bufB)
             Buffer.BlockCopy(front, 0, dst, 0, FrameSize)
             Return True
+        End SyncLock
+    End Function
+
+    Public Function GetAndResetLossRate() As Double
+        SyncLock _lossLock
+            If _totalExpectedPackets = 0 Then
+                Return 0.0
+            End If
+            Dim rate As Double = CDbl(_totalLostPackets) / CDbl(_totalExpectedPackets)
+            _totalExpectedPackets = 0
+            _totalLostPackets = 0
+            Return rate
         End SyncLock
     End Function
 
