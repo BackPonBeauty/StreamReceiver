@@ -90,6 +90,7 @@ Public Class AudioReceiver
                 If decoded > 0 Then
                     Dim bytes(decoded * Channels * 2 - 1) As Byte
                     Buffer.BlockCopy(pcmBuf, 0, bytes, 0, bytes.Length)
+                    Debug.WriteLine($"[Audio] buffer={_bufferedProvider.BufferedDuration.TotalMilliseconds:F0}ms")
                     _bufferedProvider.AddSamples(bytes, 0, bytes.Length)
                 End If
             Catch ex As Exception
