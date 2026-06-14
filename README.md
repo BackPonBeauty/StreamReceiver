@@ -38,7 +38,7 @@ Connect to a host running Supermodel3-PonMi-Streaming and play Sega Model 3 arca
 - **XInput only** — mouse and light gun input are not supported
 - **AFK kick** — players with no input for 1 minute will be kicked
 - **Esc key** — disconnect and exit the app
-- **Up to 3 connections per host slot** — one player + up to 2 spectators
+- **Up to 2 connections per host slot** — one player + 1 spectators
 - If the current player disconnects, the next spectator becomes the player
 - **Codec auto-switching** — the client automatically uses H.264 or H.265 depending on the host's configuration. No client-side setting required.
 - **Adaptive bitrate (VBR)** — the host monitors packet loss and adjusts the streaming bitrate automatically. Bitrate ranges from 800 Kbps (min) to 5.0 Mbps peak. A stable connection with no packet loss will gradually receive higher quality; packet loss above 2% triggers an immediate bitrate reduction.
@@ -153,7 +153,7 @@ Supermodel3-PonMi-Streamingを起動しているホストに接続して、WAN�
 - **XInput対応タイトルのみ** — マウス操作・ライトガン使用タイトルは非対応
 - **無操作キック** — 1分間入力がないプレーヤーは自動的にキックされます
 - **Escキー** — 切断してアプリを終了します
-- **各ホストスロットへの接続は最大3人まで** — プレーヤー1人＋観戦者最大2人
+- **各ホストスロットへの接続は最大2人まで** — プレーヤー1人＋観戦者1人
 - プレーヤーが切断した場合、次の観戦者が自動的にプレーヤーになります
 - **コーデック自動切り替え** — ホスト側の設定に応じてH.264またはH.265を自動的に選択します。クライアント側での設定は不要です。
 - **アダプティブビットレート（VBR）** — ホストがパケットロスを監視し、ビットレートを自動調整します。ビットレートは最小800Kbpsから最大5.0Mbps（ピーク）の範囲で変動します。パケットロスがない安定した接続では徐々に高画質になり、2%を超えると即座にビットレートが低下します。
