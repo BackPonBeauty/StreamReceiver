@@ -61,20 +61,33 @@ Public Class AudioReceiver
 
     Private Sub ReceiveLoop()
         Dim ep As New IPEndPoint(IPAddress.Any, 0)
-        Dim pcmBuf(960 * 2 - 1) As Short  ' 960サンプル × 2ch
+        Dim lastTimestamp As UInteger = UInteger.MaxValue
 
         Do While _running
             Try
                 Dim data() As Byte = _udpClient.Receive(ep)
                 If data.Length <= 4 Then Continue Do
 
-                ' ヘッダー4バイトを除いてOpusデコード
-#Disable Warning BC40000 ' 型またはメンバーが旧型式です
+                ' ビッグエンディアンで読む
+                Dim ts As UInteger = (CUInt(data(0)) << 24) Or
+                                 (CUInt(data(1)) << 16) Or
+                                 (CUInt(data(2)) << 8) Or
+                                  CUInt(data(3))
+
+                If lastTimestamp <> UInteger.MaxValue Then
+                    Dim diff = CInt(ts) - CInt(lastTimestamp)
+                    If diff <> 960 Then
+                        Debug.WriteLine($"[Audio] 異常: ts差={diff} (期待値=960)")
+                    End If
+                End If
+                lastTimestamp = ts
+
+                Dim pcmBuf(960 * Channels - 1) As Short
+#Disable Warning BC40000
                 Dim decoded = _decoder.Decode(data, 4, data.Length - 4,
-                                              pcmBuf, 0, 960, False)
-#Enable Warning BC40000 ' 型またはメンバーが旧型式です
+                                          pcmBuf, 0, 960, False)
+#Enable Warning BC40000
                 If decoded > 0 Then
-                    ' Short配列をByte配列に変換
                     Dim bytes(decoded * Channels * 2 - 1) As Byte
                     Buffer.BlockCopy(pcmBuf, 0, bytes, 0, bytes.Length)
                     _bufferedProvider.AddSamples(bytes, 0, bytes.Length)

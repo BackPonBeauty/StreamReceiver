@@ -54,7 +54,7 @@ Public Class DxRenderer
     End Sub
 
     ''' <summary>RGBAフレームをBitmapに転送して描画</summary>
-    Public Sub DrawFrame(bgraData() As Byte)
+    Public Sub DrawFrame(bgraData() As Byte, Optional mode As Integer = 0)
         Dim stride = _width * 4
         _bitmap.CopyFromMemory(bgraData, stride)
 
@@ -62,10 +62,26 @@ Public Class DxRenderer
 
         _renderTarget.BeginDraw()
         _renderTarget.Clear(New RawColor4(0, 0, 0, 1))
+
+        Dim srcRect As RawRectangleF
+        Select Case mode
+            Case 1 ' Top-Left
+                srcRect = New RawRectangleF(0, 0, _width / 2.0F, _height / 2.0F)
+            Case 2 ' Top-Right
+                srcRect = New RawRectangleF(_width / 2.0F, 0, _width, _height / 2.0F)
+            Case 3 ' Bottom-Left
+                srcRect = New RawRectangleF(0, _height / 2.0F, _width / 2.0F, _height)
+            Case 4 ' Bottom-Right
+                srcRect = New RawRectangleF(_width / 2.0F, _height / 2.0F, _width, _height)
+            Case Else ' Normal
+                srcRect = New RawRectangleF(0, 0, _width, _height)
+        End Select
+
         _renderTarget.DrawBitmap(_bitmap,
                              New RawRectangleF(0, 0, rtSize.Width, rtSize.Height),
                              1.0F,
-                             BitmapInterpolationMode.Linear)
+                             BitmapInterpolationMode.Linear,
+                             srcRect)
         _renderTarget.EndDraw()
     End Sub
 

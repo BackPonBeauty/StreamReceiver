@@ -130,7 +130,7 @@ Public Class VideoReceiver
                     ' HEVC NAL Type is 6 bits from byte 12
                     Dim nalType = (_rtpBuf(12) And &H7E) >> 1
 
-                    If nalType >= 0 AndAlso nalType <= 31 Then
+                    If nalType >= 0 AndAlso nalType <= 39 Then
                         If nalType = 32 OrElse nalType = 33 OrElse nalType = 34 Then _waitingForKeyframe = False
                         If Not _waitingForKeyframe Then
                             WriteNalToFFmpeg(_rtpBuf, 12, received - 12)

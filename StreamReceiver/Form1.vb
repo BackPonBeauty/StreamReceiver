@@ -41,6 +41,17 @@ Public Class Form1
     Private _handshakeClient As UdpClient
     Private _xinput As XInputSender
 
+    Private Enum VideoDisplayMode
+        Normal = 0
+        TopLeft = 1
+        TopRight = 2
+        BottomLeft = 3
+        BottomRight = 4
+    End Enum
+    Private _displayMode As VideoDisplayMode = VideoDisplayMode.Normal
+    Private _lastClickTime As DateTime = DateTime.MinValue
+    Private _lastClickPoint As Point = Point.Empty
+
     Private _portXInput As Integer
     Private _portHS As Integer
     Private _portVideo As Integer
@@ -879,7 +890,7 @@ Public Class Form1
             If _video IsNot Nothing Then
                 Dim frame(_video.FrameSize - 1) As Byte
                 _video.TryGetFrame(frame)
-                _renderer?.DrawFrame(frame)
+                _renderer?.DrawFrame(frame, CInt(_displayMode))
             End If
         Loop
     End Sub
@@ -895,6 +906,32 @@ Public Class Form1
         btnRefresh.Enabled = False
         SetStatus("Disconnected.", Color.FromArgb(150, 150, 150))
     End Sub
+
+    Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        Dim handled As Boolean = False
+        Select Case keyData
+            Case Keys.D1, Keys.NumPad1
+                _displayMode = VideoDisplayMode.TopLeft
+                handled = True
+            Case Keys.D2, Keys.NumPad2
+                _displayMode = VideoDisplayMode.TopRight
+                handled = True
+            Case Keys.D3, Keys.NumPad3
+                _displayMode = VideoDisplayMode.BottomRight
+                handled = True
+            Case Keys.D4, Keys.NumPad4
+                _displayMode = VideoDisplayMode.BottomLeft
+                handled = True
+            Case Keys.D5, Keys.NumPad5
+                _displayMode = VideoDisplayMode.Normal
+                handled = True
+        End Select
+
+        If handled Then
+            Return True
+        End If
+        Return MyBase.ProcessCmdKey(msg, keyData)
+    End Function
 
     Private Async Sub Form_KeyDown(sender As Object, e As KeyEventArgs)
         If _running AndAlso Not txtChatInput.Visible Then
