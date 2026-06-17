@@ -165,19 +165,24 @@ Public Class XInputSender
 
     Private Sub SendLoop()
         While _running
+            Dim pkt() As Byte
             If _controller.IsConnected Then
-                Dim state As State
-                _controller.GetState(state)
-                Dim pkt = GetMappedGamepadPacket(state.Gamepad)
-                _udpClient.Send(pkt, pkt.Length, _endPoint)
+                Try
+                    Dim state As State
+                    _controller.GetState(state)
+                    pkt = GetMappedGamepadPacket(state.Gamepad)
+                Catch ex As Exception
+                    pkt = GetKeyboardStatePacket()
+                End Try
             Else
-                Dim pkt = GetKeyboardStatePacket()
-                _udpClient.Send(pkt, pkt.Length, _endPoint)
+                pkt = GetKeyboardStatePacket()
             End If
+            _udpClient.Send(pkt, pkt.Length, _endPoint)
 
             Thread.Sleep(16)
         End While
     End Sub
+
 
     ' Detect active controls on a controller (used for configuration screen)
     Public Shared Function ScanActiveControllerInput(g As Gamepad) As String
