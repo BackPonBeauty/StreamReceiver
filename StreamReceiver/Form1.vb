@@ -72,6 +72,8 @@ Public Class Form1
     Private rtbChatLog As TransparentChatLog
     Private txtChatInput As TextBox
     Private txtNick As TextBox
+    Private txtLocalIp As TextBox
+    Private lblLocalIp As Label
     Private lblSlot As Label
     Private cmbSlot As ComboBox
     Private btnConnect As CyberButton
@@ -113,7 +115,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER"
+        Me.Text = "STREAM RECEIVER V20260617"
         Me.ResumeLayout(False)
 
     End Sub
@@ -234,9 +236,9 @@ Public Class Form1
 
         ' NICK ラベル (Connectパネル内に配置)
         Dim lblNick As New Label() With {
-            .Text = "NICK :",
-            .Location = New Point(230, 22),
-            .Size = New Size(46, 20),
+            .Text = "NICK:",
+            .Location = New Point(152, 22),
+            .Size = New Size(40, 20),
             .ForeColor = Color.FromArgb(0, 180, 220),
             .Font = New Font("Consolas", 8, FontStyle.Bold),
             .TextAlign = ContentAlignment.MiddleLeft,
@@ -248,8 +250,8 @@ Public Class Form1
         If String.IsNullOrEmpty(savedNick) Then savedNick = "guest"
         txtNick = New TextBox() With {
             .Name = "txtNick",
-            .Location = New Point(280, 20),
-            .Size = New Size(120, 22),
+            .Location = New Point(194, 20),
+            .Size = New Size(85, 22),
             .BackColor = Color.FromArgb(3, 10, 22),
             .ForeColor = Color.FromArgb(0, 238, 255),
             .Font = New Font("Consolas", 9),
@@ -258,8 +260,35 @@ Public Class Form1
             .ReadOnly = True
         }
 
+        ' Local IP ラベル
+        lblLocalIp = New Label() With {
+            .Text = "IP:",
+            .Location = New Point(285, 22),
+            .Size = New Size(24, 20),
+            .ForeColor = Color.FromArgb(0, 180, 220),
+            .Font = New Font("Consolas", 8, FontStyle.Bold),
+            .TextAlign = ContentAlignment.MiddleLeft,
+            .BackColor = Color.Transparent,
+            .Visible = False
+        }
+
+        ' Local IP 入力欄 (デフォルト "127.0.0.1")
+        txtLocalIp = New TextBox() With {
+            .Name = "txtLocalIp",
+            .Location = New Point(310, 20),
+            .Size = New Size(110, 22),
+            .BackColor = Color.FromArgb(3, 10, 22),
+            .ForeColor = Color.FromArgb(255, 160, 0),
+            .Font = New Font("Consolas", 9),
+            .BorderStyle = BorderStyle.FixedSingle,
+            .Text = "127.0.0.1",
+            .Visible = False
+        }
+
         pnlConnect.Controls.Add(lblNick)
         pnlConnect.Controls.Add(txtNick)
+        pnlConnect.Controls.Add(lblLocalIp)
+        pnlConnect.Controls.Add(txtLocalIp)
 
         lblStatus = New Label() With {
             .Text = "INITIALIZING...",
@@ -399,9 +428,15 @@ Public Class Form1
 
         SetStatus("Connecting to Firebase...", Color.FromArgb(100, 100, 100))
         Await _firebase.InitializeAsync()
+
         SetStatus("Subscribing to host list...", Color.FromArgb(100, 100, 100))
         If btnRefresh IsNot Nothing Then btnRefresh.Visible = False
         StartHostsSubscription()
+
+        SetStatus("Fetching host list...", Color.FromArgb(100, 100, 100))
+        Dim initialHosts = Await _firebase.GetActiveHostsAsync()
+        _hosts = If(initialHosts, New Dictionary(Of String, HostInfo)())
+        UpdateHostsListView()
 
         If Not File.Exists("ffmpeg.exe") Then
             Dim result = MessageBox.Show(
@@ -416,7 +451,9 @@ Public Class Form1
 
     Private Sub StartHostsSubscription()
         _hostsSubscription?.Dispose()
-        _hosts = New Dictionary(Of String, HostInfo)()
+        If _hosts Is Nothing Then
+            _hosts = New Dictionary(Of String, HostInfo)()
+        End If
         _hostsSubscription = _firebase.GetHostsObservable().Subscribe(
             Sub(hostEvent)
                 If hostEvent.Object IsNot Nothing Then
@@ -467,16 +504,23 @@ Public Class Form1
             Dim pingStr As String = "---"
             If _pingCache.ContainsKey(ip) Then
                 pingStr = _pingCache(ip)
-            Else
-                _pingCache(ip) = "---"
+            End If
+
+            ' トリガーされていない新規IPの場合のみ、バックグラウンドでPing計測を非同期開始
+            If Not _pingCache.ContainsKey(ip) Then
+                _pingCache(ip) = "Measuring..."
                 Dim targetIp = ip
                 Task.Run(Async Function()
-                             Dim ping = Await MeasurePingAsync(targetIp, 5001)
+                             Dim ping As Integer = -1
+                             For Each testPort As Integer In {5001, 5005, 5009, 5013}
+                                 ping = Await MeasurePingAsync(targetIp, testPort)
+                                 If ping >= 0 Then Exit For
+                             Next
                              Dim pStr = If(ping >= 0, $"{ping}ms", "---")
-                             Me.Invoke(Sub()
-                                           _pingCache(targetIp) = pStr
-                                           UpdateHostsListView()
-                                       End Sub)
+                             Me.BeginInvoke(Sub()
+                                                _pingCache(targetIp) = pStr
+                                                UpdateHostsListView()
+                                            End Sub)
                          End Function)
             End If
 
@@ -488,8 +532,19 @@ Public Class Form1
             item.Tag = hostId
 
             For Each slot In {1, 2, 3, 4}
-                If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey("slot" & slot.ToString()) Then
-                    item.SubItems.Add(If(host.Slots("slot" & slot.ToString()).Available, "●", "×"))
+                Dim slotKey = "slot" & slot.ToString()
+                If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
+                    Dim slotInfo = host.Slots(slotKey)
+                    If slotInfo.Available Then
+                        Dim userCount = 0
+                        If Not String.IsNullOrEmpty(slotInfo.User) Then
+                            Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                            userCount = users.Length
+                        End If
+                        item.SubItems.Add("●" & userCount.ToString())
+                    Else
+                        item.SubItems.Add("×")
+                    End If
                 Else
                     item.SubItems.Add("")
                 End If
@@ -502,7 +557,14 @@ Public Class Form1
                 If host.Slots IsNot Nothing Then
                     For Each slotKvp In host.Slots
                         If slotKvp.Value.Available Then
-                            cmbSlot.Items.Add($"P{slotKvp.Key.Replace("slot", "")}")
+                            Dim uCount = 0
+                            If Not String.IsNullOrEmpty(slotKvp.Value.User) Then
+                                Dim users = slotKvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                                uCount = users.Length
+                            End If
+                            If uCount < 2 Then
+                                cmbSlot.Items.Add($"P{slotKvp.Key.Replace("slot", "")}")
+                            End If
                         End If
                     Next
                 End If
@@ -527,10 +589,33 @@ Public Class Form1
         _selectedHostId = item.Tag.ToString()
         cmbSlot.Items.Clear()
         Dim host = _hosts(_selectedHostId)
+
+        Dim slotKey = "slot" & slotIndex.ToString()
+        If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
+            Dim slotInfo = host.Slots(slotKey)
+            Dim userCount = 0
+            If Not String.IsNullOrEmpty(slotInfo.User) Then
+                Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                userCount = users.Length
+            End If
+            If userCount >= 2 Then
+                btnConnect.Enabled = False
+                SetStatus($"Slot P{slotIndex} is full (2 or more users). Connection blocked.", Color.FromArgb(255, 60, 60))
+                Return
+            End If
+        End If
+
         If host.Slots IsNot Nothing Then
             For Each kvp In host.Slots
                 If kvp.Value.Available Then
-                    cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
+                    Dim uCount = 0
+                    If Not String.IsNullOrEmpty(kvp.Value.User) Then
+                        Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                        uCount = users.Length
+                    End If
+                    If uCount < 2 Then
+                        cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
+                    End If
                 End If
             Next
         End If
@@ -549,7 +634,14 @@ Public Class Form1
         If host.Slots Is Nothing Then Return
         For Each kvp In host.Slots
             If kvp.Value.Available Then
-                cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
+                Dim uCount = 0
+                If Not String.IsNullOrEmpty(kvp.Value.User) Then
+                    Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                    uCount = users.Length
+                End If
+                If uCount < 2 Then
+                    cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
+                End If
             End If
         Next
         If cmbSlot.Items.Count > 0 Then
@@ -575,6 +667,26 @@ Public Class Form1
         Dim slotKey = "slot" & slotStr
         Dim host = _hosts(_selectedHostId)
         Dim slotInfo = host.Slots(slotKey)
+
+        Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+        If String.IsNullOrEmpty(nick) Then nick = _ircNick
+        If String.IsNullOrEmpty(nick) Then nick = "guest"
+        Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
+
+        If nameToWrite <> "back_ponmi" AndAlso host.Slots IsNot Nothing Then
+            For Each slotKvp In host.Slots
+                Dim slotInfoItem = slotKvp.Value
+                If slotInfoItem IsNot Nothing AndAlso Not String.IsNullOrEmpty(slotInfoItem.User) Then
+                    Dim users = slotInfoItem.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                    If users.Contains(nameToWrite) Then
+                        Dim slotNum = slotKvp.Key.Replace("slot", "")
+                        SetStatus($"User '{nameToWrite}' is already in slot P{slotNum} on this host. Connection blocked.", Color.FromArgb(255, 60, 60))
+                        Return
+                    End If
+                End If
+            Next
+        End If
+
         _portXInput = (_selectedSlot - 1) * 4 + 5000
         _portHS = (_selectedSlot - 1) * 4 + 5001
         _portVideo = slotInfo.Video
@@ -595,7 +707,10 @@ Public Class Form1
     End Sub
 
     Private Sub DoHandshake(ip As String)
-        If _isLocalMode Then ip = "127.0.0.1"
+        If _isLocalMode Then
+            Dim localIpInput = If(txtLocalIp IsNot Nothing, txtLocalIp.Text.Trim(), "")
+            ip = If(String.IsNullOrEmpty(localIpInput), "127.0.0.1", localIpInput)
+        End If
         Try
             _handshakeClient = New UdpClient()
             Dim addresses = Dns.GetHostAddresses(ip)
@@ -667,13 +782,17 @@ Public Class Form1
                                                                       If data IsNot Nothing AndAlso data.Length > 0 Then
                                                                           Dim msgRecv = System.Text.Encoding.ASCII.GetString(data)
                                                                           If msgRecv.StartsWith("KICK") Then
-                                                                              Me.Invoke(Sub()
+                                                                              Me.Invoke(Async Sub()
                                                                                             If Me.FormBorderStyle = FormBorderStyle.None Then
                                                                                                 Me.FormBorderStyle = FormBorderStyle.Sizable
                                                                                                 Me.WindowState = FormWindowState.Normal
                                                                                                 Me.ClientSize = New Size(w, h + 40)
                                                                                             End If
                                                                                             StopReceiving("kicked")
+                                                                                            Await CleanUpFirebaseSlotAsync()
+                                                                                            If Not _isLocalMode Then
+                                                                                                Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
+                                                                                            End If
                                                                                             btnDisconnect.Enabled = False
                                                                                             btnConnect.Enabled = True
                                                                                             btnRefresh.Enabled = False
@@ -910,19 +1029,19 @@ Public Class Form1
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
         Dim handled As Boolean = False
         Select Case keyData
-            Case Keys.D1, Keys.NumPad1
+            Case Keys.Alt Or Keys.D1, Keys.Alt Or Keys.NumPad1
                 _displayMode = VideoDisplayMode.TopLeft
                 handled = True
-            Case Keys.D2, Keys.NumPad2
+            Case Keys.Alt Or Keys.D2, Keys.Alt Or Keys.NumPad2
                 _displayMode = VideoDisplayMode.TopRight
                 handled = True
-            Case Keys.D3, Keys.NumPad3
+            Case Keys.Alt Or Keys.D3, Keys.Alt Or Keys.NumPad3
                 _displayMode = VideoDisplayMode.BottomRight
                 handled = True
-            Case Keys.D4, Keys.NumPad4
+            Case Keys.Alt Or Keys.D4, Keys.Alt Or Keys.NumPad4
                 _displayMode = VideoDisplayMode.BottomLeft
                 handled = True
-            Case Keys.D5, Keys.NumPad5
+            Case Keys.Alt Or Keys.D5, Keys.Alt Or Keys.NumPad5
                 _displayMode = VideoDisplayMode.Normal
                 handled = True
         End Select
@@ -1101,10 +1220,14 @@ Public Class Form1
             btn.Text = "LOCAL"
             btn.GlowColor = Color.FromArgb(255, 160, 0)
             btn.ForeColor = Color.FromArgb(255, 160, 0)
+            If txtLocalIp IsNot Nothing Then txtLocalIp.Visible = True
+            If lblLocalIp IsNot Nothing Then lblLocalIp.Visible = True
         Else
             btn.Text = "WAN"
             btn.GlowColor = Color.FromArgb(0, 180, 220)
             btn.ForeColor = Color.FromArgb(0, 180, 220)
+            If txtLocalIp IsNot Nothing Then txtLocalIp.Visible = False
+            If lblLocalIp IsNot Nothing Then lblLocalIp.Visible = False
         End If
     End Sub
 
@@ -1219,13 +1342,17 @@ Public Class Form1
 
     Private Async Function UpdateFirebaseSlotUserAsync(username As String) As Task
         If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
-            Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, username)
+            Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, username, True)
         End If
     End Function
 
     Private Async Function CleanUpFirebaseSlotAsync() As Task
         If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
-            Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, Nothing)
+            Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+            If String.IsNullOrEmpty(nick) Then nick = _ircNick
+            If String.IsNullOrEmpty(nick) Then nick = "guest"
+            Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
+            Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, nameToWrite, False)
         End If
     End Function
 

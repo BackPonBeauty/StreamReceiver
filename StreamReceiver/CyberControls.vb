@@ -176,7 +176,7 @@ Public Class CyberListView
             ' P1〜P4列クリック
             If hit.Item.SubItems.Count > colIndex Then
                 Dim subText = hit.Item.SubItems(colIndex).Text
-                If subText = "●" Then
+                If subText.StartsWith("●") Then
                     RaiseEvent SlotClicked(colIndex, hit.Item)
                 End If
             End If
@@ -222,19 +222,39 @@ Public Class CyberListView
                 g.DrawString(e.SubItem.Text, e.Item.Font, br, rect, sf)
             End Using
         Else
-            Dim available = (e.SubItem.Text = "●")
+            Dim txt = e.SubItem.Text
+            Dim available = txt.StartsWith("●")
             Dim cx = b.Left + b.Width \ 2
             Dim cy = b.Top + b.Height \ 2
             g.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias
             If available Then
-                Using br As New SolidBrush(Color.FromArgb(35, 0, 238, 255))
+                Dim userCount = 0
+                If txt.Length > 1 Then
+                    Integer.TryParse(txt.Substring(1), userCount)
+                End If
+
+                Dim glowColor As Color
+                Dim dotColor As Color
+
+                If userCount = 1 Then
+                    glowColor = Color.FromArgb(35, 255, 238, 0)
+                    dotColor = Color.FromArgb(255, 238, 0)
+                ElseIf userCount >= 2 Then
+                    glowColor = Color.FromArgb(35, 255, 60, 60)
+                    dotColor = Color.FromArgb(255, 60, 60)
+                Else
+                    glowColor = Color.FromArgb(35, 0, 238, 255)
+                    dotColor = Color.FromArgb(0, 238, 255)
+                End If
+
+                Using br As New SolidBrush(glowColor)
                     g.FillEllipse(br, cx - 9, cy - 9, 18, 18)
                 End Using
-                Using br As New SolidBrush(Color.FromArgb(0, 238, 255))
+                Using br As New SolidBrush(dotColor)
                     g.FillEllipse(br, cx - 5, cy - 5, 10, 10)
                 End Using
             Else
-                Dim dotColor = If(e.SubItem.Text = "×", Color.FromArgb(160, 40, 40), Color.FromArgb(0, 50, 70))
+                Dim dotColor = If(txt = "×", Color.FromArgb(160, 40, 40), Color.FromArgb(0, 50, 70))
                 Using br As New SolidBrush(dotColor)
                     g.FillEllipse(br, cx - 4, cy - 4, 8, 8)
                 End Using
