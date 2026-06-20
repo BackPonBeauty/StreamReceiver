@@ -24,6 +24,21 @@ Imports System.Configuration
 Public Class Form1
     Inherits System.Windows.Forms.Form
 
+    Shared Sub New()
+        AddHandler AppDomain.CurrentDomain.AssemblyResolve, AddressOf ResolveAssemblies
+    End Sub
+
+    Private Shared Function ResolveAssemblies(sender As Object, args As ResolveEventArgs) As System.Reflection.Assembly
+        Dim folderPath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dll")
+        Dim assemblyName As New System.Reflection.AssemblyName(args.Name)
+        Dim assemblyPath As String = Path.Combine(folderPath, assemblyName.Name & ".dll")
+
+        If File.Exists(assemblyPath) Then
+            Return System.Reflection.Assembly.LoadFrom(assemblyPath)
+        End If
+        Return Nothing
+    End Function
+
     Private _firebase As New FirebaseMatchingClient()
     Private _discordUsername As String = ""
     Private _tooltip As New ToolTip()
@@ -84,6 +99,7 @@ Public Class Form1
     Private pnlVideo As Panel
     Private _ircNick As String = ""  ' streaming中の表示/非表示
     Private lnkPatreon As LinkLabel
+    Private btnSponsor As CyberButton
     Private _chatSubscription As IDisposable = Nothing
     Private _hostsSubscription As IDisposable = Nothing
     Private _pingCache As New Dictionary(Of String, String)()
@@ -92,6 +108,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
+    Private version_s As String = "1.0.0"
 
     Public Sub New()
         InitializeComponent()
@@ -115,7 +132,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260617"
+        Me.Text = "STREAM RECEIVER V20260620"
         Me.ResumeLayout(False)
 
     End Sub
@@ -330,6 +347,17 @@ Public Class Form1
         AddHandler lnkPatreon.LinkClicked, AddressOf lnkPatreon_LinkClicked
         Me.Controls.Add(lnkPatreon)
 
+        ' Sponsor Button
+        btnSponsor = New CyberButton() With {
+            .Name = "btnSponsor",
+            .Text = "SPONSOR",
+            .Size = New Size(90, 22),
+            .GlowColor = Color.FromArgb(255, 80, 160),
+            .ForeColor = Color.FromArgb(255, 80, 160)
+        }
+        AddHandler btnSponsor.Click, AddressOf btnSponsor_Click
+        Me.Controls.Add(btnSponsor)
+
         ' Chat Overlay Panel (透過/右上オーバーレイ)
         pnlChatOverlay = New Panel() With {
             .Size = New Size(300, 110),
@@ -429,6 +457,21 @@ Public Class Form1
         SetStatus("Connecting to Firebase...", Color.FromArgb(100, 100, 100))
         Await _firebase.InitializeAsync()
 
+        ' --- Version check ---
+        Try
+            Dim remoteVersion = Await _firebase.GetRemoteVersionAsync("clientversion")
+            If Not String.IsNullOrEmpty(remoteVersion) AndAlso remoteVersion <> version_s Then
+                Dim dlgResult = MessageBox.Show("new version arrival. Would you like to download the latest version?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+                If dlgResult = DialogResult.Yes Then
+                    Process.Start("https://github.com/BackPonBeauty/StreamReceiver/releases")
+                End If
+                Application.Exit()
+                Return
+            End If
+        Catch ex As Exception
+            Debug.WriteLine("[ERROR] Version check failed: " & ex.Message)
+        End Try
+
         SetStatus("Subscribing to host list...", Color.FromArgb(100, 100, 100))
         If btnRefresh IsNot Nothing Then btnRefresh.Visible = False
         StartHostsSubscription()
@@ -512,7 +555,7 @@ Public Class Form1
                 Dim targetIp = ip
                 Task.Run(Async Function()
                              Dim ping As Integer = -1
-                             For Each testPort As Integer In {5001, 5005, 5009, 5013}
+                             For Each testPort As Integer In {55001, 55005, 55009, 55013}
                                  ping = Await MeasurePingAsync(targetIp, testPort)
                                  If ping >= 0 Then Exit For
                              Next
@@ -673,22 +716,28 @@ Public Class Form1
         If String.IsNullOrEmpty(nick) Then nick = "guest"
         Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
 
-        If nameToWrite <> "back_ponmi" AndAlso host.Slots IsNot Nothing Then
-            For Each slotKvp In host.Slots
-                Dim slotInfoItem = slotKvp.Value
-                If slotInfoItem IsNot Nothing AndAlso Not String.IsNullOrEmpty(slotInfoItem.User) Then
-                    Dim users = slotInfoItem.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                    If users.Contains(nameToWrite) Then
-                        Dim slotNum = slotKvp.Key.Replace("slot", "")
-                        SetStatus($"User '{nameToWrite}' is already in slot P{slotNum} on this host. Connection blocked.", Color.FromArgb(255, 60, 60))
-                        Return
-                    End If
+        If nameToWrite <> "back_ponmi" Then
+            For Each otherHostKvp In _hosts
+                Dim otherHost = otherHostKvp.Value
+                If otherHost.Slots IsNot Nothing Then
+                    For Each slotKvp In otherHost.Slots
+                        Dim slotInfoItem = slotKvp.Value
+                        If slotInfoItem IsNot Nothing AndAlso Not String.IsNullOrEmpty(slotInfoItem.User) Then
+                            Dim users = slotInfoItem.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                            If users.Contains(nameToWrite) Then
+                                Dim otherServerName = If(String.IsNullOrEmpty(otherHost.ServerName), otherHost.Ip, otherHost.ServerName)
+                                Dim slotNum = slotKvp.Key.Replace("slot", "")
+                                SetStatus($"User '{nameToWrite}' is already in slot P{slotNum} on server '{otherServerName}'. Connection blocked.", Color.FromArgb(255, 60, 60))
+                                Return
+                            End If
+                        End If
+                    Next
                 End If
             Next
         End If
 
-        _portXInput = (_selectedSlot - 1) * 4 + 5000
-        _portHS = (_selectedSlot - 1) * 4 + 5001
+        _portXInput = (_selectedSlot - 1) * 4 + 55000
+        _portHS = (_selectedSlot - 1) * 4 + 55001
         _portVideo = slotInfo.Video
         _portAudio = slotInfo.Audio
         Debug.WriteLine($"[CONNECT] IP={host.Ip} Slot=P{_selectedSlot} XInput={_portXInput} HS={_portHS} Video={_portVideo} Audio={_portAudio}")
@@ -888,6 +937,7 @@ Public Class Form1
         pnlConnect.Visible = False
         lblStatus.Visible = False
         lnkPatreon.Visible = False
+        If btnSponsor IsNot Nothing Then btnSponsor.Visible = False
         pnlVideo.Visible = True
         pnlVideo.BringToFront()
 
@@ -966,6 +1016,7 @@ Public Class Form1
         pnlConnect.Visible = True
         lblStatus.Visible = True
         lnkPatreon.Visible = True
+        If btnSponsor IsNot Nothing Then btnSponsor.Visible = True
         btnLocalMode.Enabled = True
         btnOption.Enabled = True
 
@@ -1183,14 +1234,24 @@ Public Class Form1
                 End If
             End If
 
-            If lblStatus IsNot Nothing Then
-                lblStatus.Top = pnlConnect.Top + pnlConnect.Height + 12
-                lblStatus.Width = pw - 200
-            End If
-
             If lnkPatreon IsNot Nothing Then
                 lnkPatreon.Top = pnlConnect.Top + pnlConnect.Height + 12
                 lnkPatreon.Left = cw - 10 - lnkPatreon.Width
+            End If
+
+            If btnSponsor IsNot Nothing AndAlso lnkPatreon IsNot Nothing Then
+                btnSponsor.Top = pnlConnect.Top + pnlConnect.Height + 8
+                btnSponsor.Left = lnkPatreon.Left - btnSponsor.Width - 10
+                btnSponsor.BringToFront()
+            End If
+
+            If lblStatus IsNot Nothing Then
+                lblStatus.Top = pnlConnect.Top + pnlConnect.Height + 12
+                If btnSponsor IsNot Nothing Then
+                    lblStatus.Width = btnSponsor.Left - 20
+                Else
+                    lblStatus.Width = pw - 200
+                End If
             End If
 
             If pnlChatOverlay IsNot Nothing Then
@@ -1431,4 +1492,81 @@ Public Class Form1
         End If
     End Sub
 
+    Private Sub btnSponsor_Click(sender As Object, e As EventArgs)
+        Using sf As New SponsorForm()
+            sf.ShowDialog(Me)
+        End Using
+    End Sub
+End Class
+
+Public Class SponsorForm
+    Inherits Form
+
+    Public Sub New()
+        Me.Text = "Sponsor - PonMi"
+        Me.Size = New Size(400, 480)
+        Me.StartPosition = FormStartPosition.CenterParent
+        Me.FormBorderStyle = FormBorderStyle.FixedDialog
+        Me.MaximizeBox = False
+        Me.MinimizeBox = False
+        Me.BackColor = Color.FromArgb(10, 14, 26)
+        Me.ForeColor = Color.White
+        Me.Font = New Font("MS Gothic", 9.0F)
+
+        ' PictureBox for sponsor image
+        Dim pbImage As New PictureBox() With {
+            .Location = New Point(15, 15),
+            .Size = New Size(370, 330),
+            .SizeMode = PictureBoxSizeMode.Zoom,
+            .BackColor = Color.Transparent
+        }
+        
+        Try
+            pbImage.Image = My.Resources.Service_coupon
+        Catch ex As Exception
+            Debug.WriteLine("[ERROR] Failed to load sponsor image from resources: " & ex.Message)
+        End Try
+        Me.Controls.Add(pbImage)
+
+        ' System language detection
+        Dim isJapanese As Boolean = False
+        Try
+            Dim lang = System.Globalization.CultureInfo.CurrentUICulture.Name.ToLower()
+            If lang.StartsWith("ja") Then
+                isJapanese = True
+            End If
+        Catch
+        End Try
+
+        Dim lnkSponsor As New LinkLabel() With {
+            .Text = If(isJapanese, "かっちゃんの大衆酒場the STAND", "Kacchan's Popular Pub the STAND"),
+            .Location = New Point(15, 360),
+            .Size = New Size(370, 20),
+            .TextAlign = ContentAlignment.MiddleCenter,
+            .LinkColor = Color.FromArgb(0, 180, 255),
+            .ActiveLinkColor = Color.White,
+            .VisitedLinkColor = Color.FromArgb(0, 180, 255),
+            .Font = New Font("Consolas", 9.5F, FontStyle.Bold)
+        }
+        AddHandler lnkSponsor.LinkClicked, Sub()
+                                               Try
+                                                   Process.Start("https://katchan-the-stand.com/")
+                                               Catch ex As Exception
+                                                   MessageBox.Show("Could not open link: " & ex.Message)
+                                               End Try
+                                           End Sub
+        Me.Controls.Add(lnkSponsor)
+
+        Dim btnOk As New CyberButton() With {
+            .Text = "OK",
+            .Location = New Point(150, 395),
+            .Size = New Size(100, 30),
+            .GlowColor = Color.FromArgb(0, 210, 80),
+            .ForeColor = Color.FromArgb(0, 210, 80)
+        }
+        AddHandler btnOk.Click, Sub()
+                                    Me.Close()
+                                End Sub
+        Me.Controls.Add(btnOk)
+    End Sub
 End Class

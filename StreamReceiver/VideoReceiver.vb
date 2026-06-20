@@ -33,7 +33,7 @@ Public Class VideoReceiver
     Private _bufB() As Byte
     Private _frontIsA As Boolean = True
     Private _lock As New Object()
-    
+
     Private _totalExpectedPackets As Long = 0
     Private _totalLostPackets As Long = 0
     Private _lossLock As New Object()
@@ -73,6 +73,9 @@ Public Class VideoReceiver
             .CreateNoWindow = True
         End With
         _ffmpeg.Start()
+        AddHandler _ffmpeg.ErrorDataReceived, Sub(s, e)
+                                                  If e.Data IsNot Nothing Then Debug.WriteLine("[ffmpeg] " & e.Data)
+                                              End Sub
         _ffmpeg.BeginErrorReadLine()
 
         _rtpThread = New Thread(AddressOf RtpReceiveLoop)
