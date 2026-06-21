@@ -108,7 +108,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
-    Private version_s As String = "1.0.0"
+    Private version_s As String = "1.0.1"
 
     Public Sub New()
         InitializeComponent()
@@ -132,7 +132,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260620"
+        Me.Text = "STREAM RECEIVER V20260621"
         Me.ResumeLayout(False)
 
     End Sub
@@ -736,8 +736,8 @@ Public Class Form1
             Next
         End If
 
-        _portXInput = (_selectedSlot - 1) * 4 + 55000
-        _portHS = (_selectedSlot - 1) * 4 + 55001
+        _portXInput = slotInfo.XInput
+        _portHS = slotInfo.Handshake
         _portVideo = slotInfo.Video
         _portAudio = slotInfo.Audio
         Debug.WriteLine($"[CONNECT] IP={host.Ip} Slot=P{_selectedSlot} XInput={_portXInput} HS={_portHS} Video={_portVideo} Audio={_portAudio}")
@@ -811,8 +811,10 @@ Public Class Form1
                         Dim hbThread As New Thread(Sub()
                                                        Do While _running
                                                            Try
-                                                               Dim hb() As Byte = System.Text.Encoding.ASCII.GetBytes("HB")
-                                                               _handshakeClient.Send(hb, hb.Length)
+                                                               If _handshakeClient IsNot Nothing Then
+                                                                   Dim hb() As Byte = System.Text.Encoding.ASCII.GetBytes("HB")
+                                                                   _handshakeClient.Send(hb, hb.Length)
+                                                               End If
                                                            Catch ex As Exception
                                                                Debug.WriteLine("[HB] Error: " & ex.Message)
                                                            End Try
@@ -824,31 +826,35 @@ Public Class Form1
 
                         Dim hsReceiveThread As New Thread(Sub()
                                                               Dim epRecv As New IPEndPoint(IPAddress.Any, 0)
-                                                              _handshakeClient.Client.ReceiveTimeout = 2000
+                                                              If _handshakeClient IsNot Nothing AndAlso _handshakeClient.Client IsNot Nothing Then
+                                                                  _handshakeClient.Client.ReceiveTimeout = 2000
+                                                              End If
                                                               Do While _running
                                                                   Try
-                                                                      Dim data() As Byte = _handshakeClient.Receive(epRecv)
-                                                                      If data IsNot Nothing AndAlso data.Length > 0 Then
-                                                                          Dim msgRecv = System.Text.Encoding.ASCII.GetString(data)
-                                                                          If msgRecv.StartsWith("KICK") Then
-                                                                              Me.Invoke(Async Sub()
-                                                                                            If Me.FormBorderStyle = FormBorderStyle.None Then
-                                                                                                Me.FormBorderStyle = FormBorderStyle.Sizable
-                                                                                                Me.WindowState = FormWindowState.Normal
-                                                                                                Me.ClientSize = New Size(w, h + 40)
-                                                                                            End If
-                                                                                            StopReceiving("kicked")
-                                                                                            Await CleanUpFirebaseSlotAsync()
-                                                                                            If Not _isLocalMode Then
-                                                                                                Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
-                                                                                            End If
-                                                                                            btnDisconnect.Enabled = False
-                                                                                            btnConnect.Enabled = True
-                                                                                            btnRefresh.Enabled = False
-                                                                                            SetStatus("Kicked: no controller detected.", Color.FromArgb(220, 140, 0))
-                                                                                            MessageBox.Show("You kicked from Host reason no controler detect", "Kicked", MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                                                                                        End Sub)
-                                                                              Return
+                                                                      If _handshakeClient IsNot Nothing Then
+                                                                          Dim data() As Byte = _handshakeClient.Receive(epRecv)
+                                                                          If data IsNot Nothing AndAlso data.Length > 0 Then
+                                                                              Dim msgRecv = System.Text.Encoding.ASCII.GetString(data)
+                                                                              If msgRecv.StartsWith("KICK") Then
+                                                                                  Me.Invoke(Async Sub()
+                                                                                                If Me.FormBorderStyle = FormBorderStyle.None Then
+                                                                                                    Me.FormBorderStyle = FormBorderStyle.Sizable
+                                                                                                    Me.WindowState = FormWindowState.Normal
+                                                                                                    Me.ClientSize = New Size(w, h + 40)
+                                                                                                End If
+                                                                                                StopReceiving("kicked")
+                                                                                                Await CleanUpFirebaseSlotAsync()
+                                                                                                If Not _isLocalMode Then
+                                                                                                    Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
+                                                                                                End If
+                                                                                                btnDisconnect.Enabled = False
+                                                                                                btnConnect.Enabled = True
+                                                                                                btnRefresh.Enabled = False
+                                                                                                SetStatus("Kicked: no controller detected.", Color.FromArgb(220, 140, 0))
+                                                                                                MessageBox.Show("You kicked from Host reason no controler detect", "Kicked", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                                                                                              End Sub)
+                                                                                  Return
+                                                                              End If
                                                                           End If
                                                                       End If
                                                                   Catch ex As SocketException
