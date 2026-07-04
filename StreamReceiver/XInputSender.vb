@@ -35,6 +35,23 @@ Public Class XInputSender
     Private Shared _pressedKeys As New HashSet(Of Keys)()
     Private Shared _keysLock As New Object()
 
+    ' Meta-key flags sent to host
+    Public Const METAKEY_ALT_D        As UShort = 1        ' bit 0
+    Public Const METAKEY_BITRATE_UP   As UShort = 2        ' bit 1
+    Public Const METAKEY_BITRATE_DOWN As UShort = 4        ' bit 2
+    Private Shared _metaKeys As UShort = 0
+    Private Shared _metaLock As New Object()
+
+    Public Shared Sub SetMetaKey(bit As UShort, pressed As Boolean)
+        SyncLock _metaLock
+            If pressed Then
+                _metaKeys = _metaKeys Or bit
+            Else
+                _metaKeys = _metaKeys And Not bit
+            End If
+        End SyncLock
+    End Sub
+
     Public Shared KeyMapping As New Dictionary(Of String, Keys) From {
         {"DpadUp", Keys.None},
         {"DpadDown", Keys.None},
@@ -179,7 +196,7 @@ Public Class XInputSender
             End If
             _udpClient.Send(pkt, pkt.Length, _endPoint)
 
-            Thread.Sleep(16)
+            Thread.Sleep(8)
         End While
     End Sub
 
@@ -271,6 +288,9 @@ Public Class XInputSender
         BitConverter.GetBytes(thumbLY).CopyTo(buf, 6)
         BitConverter.GetBytes(thumbRX).CopyTo(buf, 8)
         BitConverter.GetBytes(thumbRY).CopyTo(buf, 10)
+        Dim mk As UShort
+        SyncLock _metaLock : mk = _metaKeys : End SyncLock
+        BitConverter.GetBytes(mk).CopyTo(buf, 12)
         Return buf
     End Function
 
@@ -364,6 +384,9 @@ Public Class XInputSender
         BitConverter.GetBytes(thumbLY).CopyTo(buf, 6)
         BitConverter.GetBytes(thumbRX).CopyTo(buf, 8)
         BitConverter.GetBytes(thumbRY).CopyTo(buf, 10)
+        Dim mk As UShort
+        SyncLock _metaLock : mk = _metaKeys : End SyncLock
+        BitConverter.GetBytes(mk).CopyTo(buf, 12)
         Return buf
     End Function
 

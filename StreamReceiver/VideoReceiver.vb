@@ -17,6 +17,7 @@ Imports System.Net
 Imports System.Net.Sockets
 Imports System.Threading
 Imports System.Diagnostics
+Imports System.IO
 
 Public Class VideoReceiver
     Private _udpClient As UdpClient
@@ -61,10 +62,15 @@ Public Class VideoReceiver
     Public Sub Start()
         _running = True
 
+        Dim ffmpegPath As String = FfmpegHelper.GetFfmpegPath()
+        If ffmpegPath Is Nothing Then
+            Throw New FileNotFoundException("ffmpeg.exe が見つかりません。FfmpegHelper.EnsureFfmpegAsync() を先に実行してください。")
+        End If
+
         Dim codecArg As String = If(_codec.ToUpper() = "H264", "h264", "hevc")
         _ffmpeg = New Process()
         With _ffmpeg.StartInfo
-            .FileName = "ffmpeg.exe"
+            .FileName = ffmpegPath
             .Arguments = $"-fflags nobuffer -flags low_delay -f {codecArg} -i pipe:0 -vf ""vflip,scale={Width}:{Height}"" -f rawvideo -pix_fmt bgra pipe:1"
             .UseShellExecute = False
             .RedirectStandardInput = True

@@ -79,6 +79,12 @@ Public Class Form1
     Private ReadOnly W As Integer = 960
     Private ReadOnly H As Integer = 540
 
+    ' Aspect ratio from host handshake (updated on connect, reset on disconnect)
+    Private _streamW As Integer = 960
+    Private _streamH As Integer = 540
+    Private _useH265 As Boolean = True   ' True=H265優先, False=H264強制
+    Private btnH265 As CyberButton
+
     Private pnlHostList As CyberPanel
     Private lvHosts As CyberListView
     Private btnRefresh As CyberButton
@@ -108,7 +114,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
-    Private version_s As String = "1.0.1"
+    Private version_s As String = "20260704"
 
     Public Sub New()
         InitializeComponent()
@@ -132,7 +138,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260621"
+        Me.Text = "STREAM RECEIVER V20260704"
         Me.ResumeLayout(False)
 
     End Sub
@@ -202,15 +208,27 @@ Public Class Form1
             .Font = New Font("Consolas", 9),
             .DropDownStyle = ComboBoxStyle.DropDownList
         }
+        ' H265トグルボタン
+        btnH265 = New CyberButton() With {
+            .Name = "btnH265",
+            .Text = "H265",
+            .Location = New Point(774, 20),
+            .Size = New Size(160, 34),
+            .GlowColor = Color.FromArgb(0, 210, 180),
+            .ForeColor = Color.FromArgb(0, 210, 180)
+        }
+        AddHandler btnH265.Click, AddressOf btnH265_Click
+        pnlConnect.Controls.Add(btnH265)
+
         ' Local/WANトグルボタン
         btnLocalMode = New CyberButton() With {
-    .Name = "btnLocalMode",
-    .Text = "WAN",
-    .Location = New Point(430, 20),
-    .Size = New Size(80, 34),
-    .GlowColor = Color.FromArgb(0, 180, 220),
-    .ForeColor = Color.FromArgb(0, 180, 220)
-}
+            .Name = "btnLocalMode",
+            .Text = "WAN",
+            .Location = New Point(430, 20),
+            .Size = New Size(80, 34),
+            .GlowColor = Color.FromArgb(0, 180, 220),
+            .ForeColor = Color.FromArgb(0, 180, 220)
+        }
         AddHandler btnLocalMode.Click, AddressOf btnLocalMode_Click
         pnlConnect.Controls.Add(btnLocalMode)
 
@@ -249,7 +267,6 @@ Public Class Form1
         pnlConnect.Controls.Add(lblSlot)
         pnlConnect.Controls.Add(cmbSlot)
         pnlConnect.Controls.Add(btnConnect)
-        pnlConnect.Controls.Add(btnDisconnect)
 
         ' NICK ラベル (Connectパネル内に配置)
         Dim lblNick As New Label() With {
@@ -389,7 +406,7 @@ Public Class Form1
 
         pnlChatOverlay.Controls.Add(rtbChatLog)
         pnlChatOverlay.Controls.Add(txtChatInput)
-        pnlVideo.Controls.Add(pnlChatOverlay)
+        Me.Controls.Add(pnlChatOverlay)
 
         ' 初期レイアウトを適用
         Form1_Resize(Nothing, EventArgs.Empty)
@@ -460,13 +477,21 @@ Public Class Form1
         ' --- Version check ---
         Try
             Dim remoteVersion = Await _firebase.GetRemoteVersionAsync("clientversion")
-            If Not String.IsNullOrEmpty(remoteVersion) AndAlso remoteVersion <> version_s Then
-                Dim dlgResult = MessageBox.Show("new version arrival. Would you like to download the latest version?", "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
-                If dlgResult = DialogResult.Yes Then
-                    Process.Start("https://github.com/BackPonBeauty/StreamReceiver/releases")
+            If Not String.IsNullOrEmpty(remoteVersion) Then
+                Dim local As Integer = 0
+                Dim remote As Integer = 0
+                Integer.TryParse(version_s, local)
+                Integer.TryParse(remoteVersion, remote)
+                If remote > local Then
+                    Dim dlgResult = MessageBox.Show(
+                        "新しいバージョン(" & remoteVersion & ")があります。ダウンロードしますか？" & vbCrLf & "「いいえ」で現在のバージョンのまま起動します。",
+                        "Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
+                    If dlgResult = DialogResult.Yes Then
+                        Process.Start("https://github.com/BackPonBeauty/Supermodel3-PonMi-Streaming")
+                    End If
+                    Application.Exit()
+                    Return
                 End If
-                Application.Exit()
-                Return
             End If
         Catch ex As Exception
             Debug.WriteLine("[ERROR] Version check failed: " & ex.Message)
@@ -481,14 +506,21 @@ Public Class Form1
         _hosts = If(initialHosts, New Dictionary(Of String, HostInfo)())
         UpdateHostsListView()
 
-        If Not File.Exists("ffmpeg.exe") Then
-            Dim result = MessageBox.Show(
-                "ffmpeg.exe not found." & vbCrLf & vbCrLf &
-                "Open the download page?" & vbCrLf &
-                "(Place ffmpeg.exe in the same folder as StreamReceiver.exe)",
-                "Error", MessageBoxButtons.YesNo, MessageBoxIcon.Error)
-            If result = DialogResult.Yes Then Process.Start("https://www.gyan.dev/ffmpeg/builds/")
-            Application.Exit()
+        ' ffmpeg 自動チェック＆ダウンロード
+        If FfmpegHelper.GetFfmpegPath() Is Nothing Then
+            SetStatus("⏬ ffmpeg をダウンロードしています...", Color.Cyan)
+            Dim prog = New Progress(Of String)(Sub(msg) SetStatus(msg, Color.Cyan))
+            Dim ok = Await FfmpegHelper.EnsureFfmpegAsync(prog)
+            If Not ok Then
+                MessageBox.Show(
+                    "ffmpeg のダウンロードに失敗しました。" & vbCrLf &
+                    "手動でダウンロードして同じフォルダに配置してください。" & vbCrLf &
+                    "https://www.gyan.dev/ffmpeg/builds/",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                Application.Exit()
+                Return
+            End If
+            SetStatus("ffmpeg の準備が完了しました", Color.FromArgb(0, 220, 100))
         End If
     End Sub
 
@@ -579,12 +611,7 @@ Public Class Form1
                 If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
                     Dim slotInfo = host.Slots(slotKey)
                     If slotInfo.Available Then
-                        Dim userCount = 0
-                        If Not String.IsNullOrEmpty(slotInfo.User) Then
-                            Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                            userCount = users.Length
-                        End If
-                        item.SubItems.Add("●" & userCount.ToString())
+                        item.SubItems.Add("●" & slotInfo.ClientCount.ToString())
                     Else
                         item.SubItems.Add("×")
                     End If
@@ -600,12 +627,7 @@ Public Class Form1
                 If host.Slots IsNot Nothing Then
                     For Each slotKvp In host.Slots
                         If slotKvp.Value.Available Then
-                            Dim uCount = 0
-                            If Not String.IsNullOrEmpty(slotKvp.Value.User) Then
-                                Dim users = slotKvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                                uCount = users.Length
-                            End If
-                            If uCount < 2 Then
+                            If slotKvp.Value.ClientCount < 2 Then
                                 cmbSlot.Items.Add($"P{slotKvp.Key.Replace("slot", "")}")
                             End If
                         End If
@@ -636,12 +658,7 @@ Public Class Form1
         Dim slotKey = "slot" & slotIndex.ToString()
         If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
             Dim slotInfo = host.Slots(slotKey)
-            Dim userCount = 0
-            If Not String.IsNullOrEmpty(slotInfo.User) Then
-                Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                userCount = users.Length
-            End If
-            If userCount >= 2 Then
+            If slotInfo.ClientCount >= 2 Then
                 btnConnect.Enabled = False
                 SetStatus($"Slot P{slotIndex} is full (2 or more users). Connection blocked.", Color.FromArgb(255, 60, 60))
                 Return
@@ -650,15 +667,8 @@ Public Class Form1
 
         If host.Slots IsNot Nothing Then
             For Each kvp In host.Slots
-                If kvp.Value.Available Then
-                    Dim uCount = 0
-                    If Not String.IsNullOrEmpty(kvp.Value.User) Then
-                        Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                        uCount = users.Length
-                    End If
-                    If uCount < 2 Then
-                        cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
-                    End If
+                If kvp.Value.Available AndAlso kvp.Value.ClientCount < 2 Then
+                    cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
                 End If
             Next
         End If
@@ -705,6 +715,20 @@ Public Class Form1
 
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs)
         If _selectedHostId = "" OrElse cmbSlot.SelectedItem Is Nothing Then Return
+
+        ' ffmpeg 存在チェック → なければ自動ダウンロード
+        If FfmpegHelper.GetFfmpegPath() Is Nothing Then
+            btnConnect.Enabled = False
+            SetStatus("⏬ ffmpeg をダウンロードしています...", Color.Cyan)
+            Dim prog = New Progress(Of String)(Sub(msg) SetStatus(msg, Color.Cyan))
+            Dim ok = Await FfmpegHelper.EnsureFfmpegAsync(prog)
+            If Not ok Then
+                SetStatus("❌ ffmpeg のダウンロードに失敗しました", Color.Red)
+                btnConnect.Enabled = True
+                Return
+            End If
+        End If
+
         Dim slotStr = cmbSlot.SelectedItem.ToString().Replace("P", "")
         _selectedSlot = CInt(slotStr)
         Dim slotKey = "slot" & slotStr
@@ -767,7 +791,9 @@ Public Class Form1
             Dim resolvedIP = addresses(0).ToString()
             Debug.WriteLine($"[DNS] {ip} -> {resolvedIP}")
             _handshakeClient.Connect(resolvedIP, _portHS)
-            Dim hello() As Byte = System.Text.Encoding.ASCII.GetBytes("HELLO")
+            Dim discordNickToSend = If(String.IsNullOrEmpty(_discordUsername), "guest", _discordUsername)
+            Dim codecList As String = If(_useH265, "H265,H264", "H264")
+            Dim hello() As Byte = System.Text.Encoding.ASCII.GetBytes("HELLO:" & discordNickToSend & ":" & codecList)
             Dim ep As New IPEndPoint(IPAddress.Any, 0)
             For i = 1 To 10
                 _handshakeClient.Send(hello, hello.Length)
@@ -805,8 +831,8 @@ Public Class Form1
                                       If String.IsNullOrEmpty(nick) Then nick = _ircNick
                                       If String.IsNullOrEmpty(nick) Then nick = "guest"
                                       Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
-                                      Dim taskUpdate = UpdateFirebaseSlotUserAsync(nameToWrite)
-                                      Dim taskJoinMsg = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> joined")
+                                      'Dim taskUpdate = UpdateFirebaseSlotUserAsync(nameToWrite)
+                                      'Dim taskJoinMsg = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> joined")
                                   End Sub)
                         Dim hbThread As New Thread(Sub()
                                                        Do While _running
@@ -843,7 +869,7 @@ Public Class Form1
                                                                                                     Me.ClientSize = New Size(w, h + 40)
                                                                                                 End If
                                                                                                 StopReceiving("kicked")
-                                                                                                Await CleanUpFirebaseSlotAsync()
+                                                                                                'Await CleanUpFirebaseSlotAsync()
                                                                                                 If Not _isLocalMode Then
                                                                                                     Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
                                                                                                 End If
@@ -852,7 +878,7 @@ Public Class Form1
                                                                                                 btnRefresh.Enabled = False
                                                                                                 SetStatus("Kicked: no controller detected.", Color.FromArgb(220, 140, 0))
                                                                                                 MessageBox.Show("You kicked from Host reason no controler detect", "Kicked", MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                                                                                              End Sub)
+                                                                                            End Sub)
                                                                                   Return
                                                                               End If
                                                                           End If
@@ -944,15 +970,20 @@ Public Class Form1
         lblStatus.Visible = False
         lnkPatreon.Visible = False
         If btnSponsor IsNot Nothing Then btnSponsor.Visible = False
+        _streamW = w
+        _streamH = h
         pnlVideo.Visible = True
         pnlVideo.BringToFront()
+        Form1_Resize(Nothing, EventArgs.Empty)
 
         ' チャットオーバーレイを表示して購読
+        txtChatInput.Visible = False
+        txtChatInput.Text = ""
         pnlChatOverlay.Visible = True
         pnlChatOverlay.Height = 0
         pnlChatOverlay.BringToFront()
-        pnlChatOverlay.Left = pnlVideo.Width - pnlChatOverlay.Width - 10
-        pnlChatOverlay.Top = 10
+        pnlChatOverlay.Left = pnlVideo.Left + pnlVideo.Width - pnlChatOverlay.Width - 10
+        pnlChatOverlay.Top = pnlVideo.Top + 10
         rtbChatLog.Clear()
         _processedChatKeys.Clear()
         _isInitialLoading = True
@@ -962,8 +993,7 @@ Public Class Form1
                      Await Task.Delay(2000)
                      _isInitialLoading = False
                  End Function)
-
-        Me.ClientSize = New Size(w, h)
+        'Me.ClientSize = New Size(w, h)
         _renderer = New DxRenderer(pnlVideo.Handle, w, h)
         _video = New VideoReceiver(w, h, udp4, codec)
         _audio = New AudioReceiver(udp5)
@@ -999,9 +1029,11 @@ Public Class Form1
             If String.IsNullOrEmpty(nick) Then nick = _ircNick
             If String.IsNullOrEmpty(nick) Then nick = "guest"
             Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
-            Dim taskDisconnect = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> {reason}")
+            'Dim taskDisconnect = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> {reason}")
         End If
 
+        _streamW = 960
+        _streamH = 540
         Me.ClientSize = New Size(960, 540)
         _running = False
         _xinput?.Stop()
@@ -1027,6 +1059,9 @@ Public Class Form1
         btnOption.Enabled = True
 
         ' チャット購読の解除
+        txtChatInput.Visible = False
+        txtChatInput.Text = ""
+        pnlChatOverlay.Height = 0
         pnlChatOverlay.Visible = False
         StopChatSubscription()
 
@@ -1055,7 +1090,7 @@ Public Class Form1
                       btnRefresh.Enabled = False
                       SetStatus("Disconnected: no controller detected.", Color.FromArgb(220, 140, 0))
                   End Sub)
-        Await CleanUpFirebaseSlotAsync()
+        'Await CleanUpFirebaseSlotAsync()
         If Not _isLocalMode Then
             Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
         End If
@@ -1084,6 +1119,18 @@ Public Class Form1
     End Sub
 
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        ' Enter キーでチャット入力欄を開く（ActiveControlがボタンの場合でも確実に動作させるため）
+        If keyData = Keys.Return Then
+            If _running AndAlso Not txtChatInput.Visible Then
+                pnlChatOverlay.Height = 110
+                txtChatInput.Visible = True
+                txtChatInput.Focus()
+                ResetChatTimer()
+                pnlChatOverlay.BringToFront()
+                Return True
+            End If
+        End If
+
         Dim handled As Boolean = False
         Select Case keyData
             Case Keys.Alt Or Keys.D1, Keys.Alt Or Keys.NumPad1
@@ -1111,6 +1158,26 @@ Public Class Form1
 
     Private Async Sub Form_KeyDown(sender As Object, e As KeyEventArgs)
         If _running AndAlso Not txtChatInput.Visible Then
+            ' Send Alt+D to host as meta-key
+            If e.KeyCode = Keys.D AndAlso e.Alt Then
+                XInputSender.SetMetaKey(XInputSender.METAKEY_ALT_D, True)
+                e.Handled = True
+                e.SuppressKeyPress = True
+                Return
+            End If
+            ' Cursor up/down → bitrate control on host
+            If e.KeyCode = Keys.Up Then
+                XInputSender.SetMetaKey(XInputSender.METAKEY_BITRATE_UP, True)
+                e.Handled = True
+                e.SuppressKeyPress = True
+                Return
+            End If
+            If e.KeyCode = Keys.Down Then
+                XInputSender.SetMetaKey(XInputSender.METAKEY_BITRATE_DOWN, True)
+                e.Handled = True
+                e.SuppressKeyPress = True
+                Return
+            End If
             XInputSender.UpdateKeyState(e.KeyCode, True)
             For Each kvp In XInputSender.KeyMapping
                 If kvp.Value = e.KeyCode Then
@@ -1136,10 +1203,6 @@ Public Class Form1
 
         If e.KeyCode = Keys.Enter Then
             If _running AndAlso Not txtChatInput.Visible Then
-                pnlChatOverlay.Height = 110
-                txtChatInput.Visible = True
-                txtChatInput.Focus()
-                ResetChatTimer()
                 e.Handled = True
                 e.SuppressKeyPress = True
                 Return
@@ -1154,7 +1217,7 @@ Public Class Form1
             ElseIf _running Then
                 Me.WindowState = FormWindowState.Normal
                 StopReceiving()
-                Await CleanUpFirebaseSlotAsync()
+                'Await CleanUpFirebaseSlotAsync()
                 If Not _isLocalMode Then
                     Await UPnPHelper.ClosePorts(_portXInput, _portHS, _portVideo, _portAudio)
                 End If
@@ -1170,6 +1233,15 @@ Public Class Form1
 
     Private Sub Form_KeyUp(sender As Object, e As KeyEventArgs)
         If _running Then
+            If e.KeyCode = Keys.D Then
+                XInputSender.SetMetaKey(XInputSender.METAKEY_ALT_D, False)
+            End If
+            If e.KeyCode = Keys.Up Then
+                XInputSender.SetMetaKey(XInputSender.METAKEY_BITRATE_UP, False)
+            End If
+            If e.KeyCode = Keys.Down Then
+                XInputSender.SetMetaKey(XInputSender.METAKEY_BITRATE_DOWN, False)
+            End If
             XInputSender.UpdateKeyState(e.KeyCode, False)
             For Each kvp In XInputSender.KeyMapping
                 If kvp.Value = e.KeyCode Then
@@ -1186,22 +1258,24 @@ Public Class Form1
         Dim ch = Me.ClientSize.Height
 
         If pnlVideo IsNot Nothing AndAlso pnlVideo.Visible Then
-            ' 映像パネル：16:9維持
+            ' 映像パネル：ホストから受け取った解像度のアスペクト比を維持
+            Dim aspectW As Double = If(_streamW > 0, _streamW, 16)
+            Dim aspectH As Double = If(_streamH > 0, _streamH, 9)
             Dim panelH = ch
-            Dim panelW = CInt(panelH * 16.0 / 9.0)
+            Dim panelW = CInt(panelH * aspectW / aspectH)
             If panelW > cw Then
                 panelW = cw
-                panelH = CInt(panelW * 9.0 / 16.0)
+                panelH = CInt(panelW * aspectH / aspectW)
             End If
             pnlVideo.Width = panelW
             pnlVideo.Height = panelH
             pnlVideo.Left = (cw - panelW) \ 2
             pnlVideo.Top = 0
 
-            ' チャットオーバーレイ：映像右上に追従
+            ' チャットオーバーレイ：映像右上に追従（フォーム直下のため絶対座標）
             If pnlChatOverlay IsNot Nothing Then
-                pnlChatOverlay.Left = pnlVideo.Width - pnlChatOverlay.Width - 10
-                pnlChatOverlay.Top = 10
+                pnlChatOverlay.Left = pnlVideo.Left + pnlVideo.Width - pnlChatOverlay.Width - 10
+                pnlChatOverlay.Top = pnlVideo.Top + 10
             End If
         Else
             ' 通常UI：各パネルを幅に追従
@@ -1235,8 +1309,8 @@ Public Class Form1
                 If btnConnect IsNot Nothing Then
                     btnConnect.Left = pw - 160 - 160 - 16
                 End If
-                If btnDisconnect IsNot Nothing Then
-                    btnDisconnect.Left = pw - 160 - 8
+                If btnH265 IsNot Nothing Then
+                    btnH265.Left = pw - 160 - 8
                 End If
             End If
 
@@ -1277,6 +1351,19 @@ Public Class Form1
             Me.BeginInvoke(action)
         Else
             action()
+        End If
+    End Sub
+
+    Private Sub btnH265_Click(sender As Object, e As EventArgs)
+        _useH265 = Not _useH265
+        If _useH265 Then
+            btnH265.Text = "H265"
+            btnH265.GlowColor = Color.FromArgb(0, 210, 180)
+            btnH265.ForeColor = Color.FromArgb(0, 210, 180)
+        Else
+            btnH265.Text = "H264"
+            btnH265.GlowColor = Color.FromArgb(80, 80, 80)
+            btnH265.ForeColor = Color.FromArgb(80, 80, 80)
         End If
     End Sub
 
@@ -1408,19 +1495,21 @@ Public Class Form1
     ' -------------------------------------------------------
 
     Private Async Function UpdateFirebaseSlotUserAsync(username As String) As Task
-        If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
-            Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, username, True)
-        End If
+        'If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
+        '    Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, username, True)
+        'End If
+        Await Task.CompletedTask
     End Function
 
     Private Async Function CleanUpFirebaseSlotAsync() As Task
-        If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
-            Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
-            If String.IsNullOrEmpty(nick) Then nick = _ircNick
-            If String.IsNullOrEmpty(nick) Then nick = "guest"
-            Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
-            Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, nameToWrite, False)
-        End If
+        'If Not String.IsNullOrEmpty(_selectedHostId) AndAlso _selectedSlot > 0 Then
+        '    Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+        '    If String.IsNullOrEmpty(nick) Then nick = _ircNick
+        '    If String.IsNullOrEmpty(nick) Then nick = "guest"
+        '    Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
+        '    Await _firebase.UpdateSlotUserAsync(_selectedHostId, _selectedSlot, nameToWrite, False)
+        'End If
+        Await Task.CompletedTask
     End Function
 
     Private Sub lvHosts_MouseMove(sender As Object, e As MouseEventArgs)
@@ -1502,6 +1591,10 @@ Public Class Form1
         Using sf As New SponsorForm()
             sf.ShowDialog(Me)
         End Using
+    End Sub
+
+    Private Sub Form1_Load_1(sender As Object, e As EventArgs) Handles MyBase.Load
+
     End Sub
 End Class
 
