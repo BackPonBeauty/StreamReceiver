@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 BackPonBeauty
+Copyright (c) 2024-2026 BackPonBeauty
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,12 +21,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Based on the original Supermodel3 (https://github.com/trzy/Supermodel)
-License: GPL Ver.3
+License: GPL v3
 Copyright 2003-2026 The Supermodel Team
 
 --------------------------------------------------------------------------------
 
 This software includes the following libraries:
+
+ffmpeg
+ - Copyright (c) the FFmpeg developers
+ - Licensed under the GNU General Public License v3.0 (GPL v3)
+ - Source code available at: https://ffmpeg.org/
+ - This build provided by: https://www.gyan.dev/ffmpeg/builds/
 
 Firebase (https://firebase.google.com/) 
 License: https://firebase.google.com/terms
