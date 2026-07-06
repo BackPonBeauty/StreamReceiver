@@ -20,8 +20,16 @@ Imports SharpDX.XInput
 Imports State = SharpDX.XInput.State
 Imports System.Windows.Forms
 Imports System.Collections.Generic
+Imports System.Runtime.InteropServices
 
 Public Class XInputSender
+
+    <DllImport("winmm.dll")>
+    Private Shared Function timeBeginPeriod(uPeriod As UInteger) As Integer
+    End Function
+    <DllImport("winmm.dll")>
+    Private Shared Function timeEndPeriod(uPeriod As UInteger) As Integer
+    End Function
 
     Public Event ControllerDisconnected()
 
@@ -181,23 +189,28 @@ Public Class XInputSender
     End Sub
 
     Private Sub SendLoop()
-        While _running
-            Dim pkt() As Byte
-            If _controller.IsConnected Then
-                Try
-                    Dim state As State
-                    _controller.GetState(state)
-                    pkt = GetMappedGamepadPacket(state.Gamepad)
-                Catch ex As Exception
+        timeBeginPeriod(1)
+        Try
+            While _running
+                Dim pkt() As Byte
+                If _controller.IsConnected Then
+                    Try
+                        Dim state As State
+                        _controller.GetState(state)
+                        pkt = GetMappedGamepadPacket(state.Gamepad)
+                    Catch ex As Exception
+                        pkt = GetKeyboardStatePacket()
+                    End Try
+                Else
                     pkt = GetKeyboardStatePacket()
-                End Try
-            Else
-                pkt = GetKeyboardStatePacket()
-            End If
-            _udpClient.Send(pkt, pkt.Length, _endPoint)
+                End If
+                _udpClient.Send(pkt, pkt.Length, _endPoint)
 
-            Thread.Sleep(8)
-        End While
+                Thread.Sleep(8)
+            End While
+        Finally
+            timeEndPeriod(1)
+        End Try
     End Sub
 
 
