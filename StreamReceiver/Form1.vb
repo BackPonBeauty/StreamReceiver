@@ -114,7 +114,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
-    Private version_s As String = "20260704"
+    Private version_s As String = "20260707"
 
     Public Sub New()
         InitializeComponent()
