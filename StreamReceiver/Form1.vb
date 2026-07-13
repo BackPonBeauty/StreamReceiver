@@ -40,6 +40,7 @@ Public Class Form1
     End Function
 
     Private _firebase As New FirebaseMatchingClient()
+    Private _sessionId As String = Guid.NewGuid().ToString("N").Substring(0, 8)
     Private _discordUsername As String = ""
     Private _tooltip As New ToolTip()
     Private _lastTooltipItem As ListViewItem = Nothing
@@ -138,7 +139,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260705"
+        Me.Text = "STREAM RECEIVER V20260707"
         Me.ResumeLayout(False)
 
     End Sub
@@ -418,6 +419,9 @@ Public Class Form1
         Me.KeyPreview = True
         XInputSender.LoadConfig()
 
+        ' 起動時に以前開いたUPnPポートを閉じる（ホールパンチングに移行したため不要）
+        Await UPnPHelper.ClosePorts(55000, 55001, 55002, 55003)
+
         pnlVideo.Width = W
         pnlVideo.Height = H
         pnlVideo.Location = New Point(0, 0)
@@ -627,7 +631,12 @@ Public Class Form1
                 If host.Slots IsNot Nothing Then
                     For Each slotKvp In host.Slots
                         If slotKvp.Value.Available Then
-                            If slotKvp.Value.ClientCount < 2 Then
+                            Dim uCount = 0
+                            If Not String.IsNullOrEmpty(slotKvp.Value.User) Then
+                                Dim users = slotKvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                                uCount = users.Length
+                            End If
+                            If slotKvp.Value.ClientCount < 2 AndAlso uCount < 2 Then
                                 cmbSlot.Items.Add($"P{slotKvp.Key.Replace("slot", "")}")
                             End If
                         End If
@@ -658,7 +667,12 @@ Public Class Form1
         Dim slotKey = "slot" & slotIndex.ToString()
         If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
             Dim slotInfo = host.Slots(slotKey)
-            If slotInfo.ClientCount >= 2 Then
+            Dim uCount = 0
+            If Not String.IsNullOrEmpty(slotInfo.User) Then
+                Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                uCount = users.Length
+            End If
+            If slotInfo.ClientCount >= 2 OrElse uCount >= 2 Then
                 btnConnect.Enabled = False
                 SetStatus($"Slot P{slotIndex} is full (2 or more users). Connection blocked.", Color.FromArgb(255, 60, 60))
                 Return
@@ -667,7 +681,12 @@ Public Class Form1
 
         If host.Slots IsNot Nothing Then
             For Each kvp In host.Slots
-                If kvp.Value.Available AndAlso kvp.Value.ClientCount < 2 Then
+                Dim uCount = 0
+                If Not String.IsNullOrEmpty(kvp.Value.User) Then
+                    Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+                    uCount = users.Length
+                End If
+                If kvp.Value.Available AndAlso kvp.Value.ClientCount < 2 AndAlso uCount < 2 Then
                     cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
                 End If
             Next
@@ -692,7 +711,7 @@ Public Class Form1
                     Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
                     uCount = users.Length
                 End If
-                If uCount < 2 Then
+                If uCount < 2 AndAlso kvp.Value.ClientCount < 2 Then
                     cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
                 End If
             End If
@@ -734,6 +753,17 @@ Public Class Form1
         Dim slotKey = "slot" & slotStr
         Dim host = _hosts(_selectedHostId)
         Dim slotInfo = host.Slots(slotKey)
+
+        ' Double check slot occupancy on click
+        Dim currentSlotUserCount = 0
+        If slotInfo IsNot Nothing AndAlso Not String.IsNullOrEmpty(slotInfo.User) Then
+            Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
+            currentSlotUserCount = users.Length
+        End If
+        If slotInfo IsNot Nothing AndAlso (slotInfo.ClientCount >= 2 OrElse currentSlotUserCount >= 2) Then
+            SetStatus($"Slot P{_selectedSlot} is full. Connection blocked.", Color.FromArgb(255, 60, 60))
+            Return
+        End If
 
         Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
         If String.IsNullOrEmpty(nick) Then nick = _ircNick
@@ -791,11 +821,12 @@ Public Class Form1
             Dim resolvedIP = addresses(0).ToString()
             Debug.WriteLine($"[DNS] {ip} -> {resolvedIP}")
             _handshakeClient.Connect(resolvedIP, _portHS)
-            Dim discordNickToSend = If(String.IsNullOrEmpty(_discordUsername), "guest", _discordUsername)
+            Dim baseNick = If(String.IsNullOrEmpty(_discordUsername), "player", _discordUsername)
+            Dim discordNickToSend = baseNick & "_" & _selectedSlot
             Dim codecList As String = If(_useH265, "H265,H264", "H264")
-            Dim hello() As Byte = System.Text.Encoding.ASCII.GetBytes("HELLO:" & discordNickToSend & ":" & codecList)
+            Dim hello() As Byte = System.Text.Encoding.ASCII.GetBytes("HELLO:" & discordNickToSend & ":" & codecList & ":" & _sessionId)
             Dim ep As New IPEndPoint(IPAddress.Any, 0)
-            For i = 1 To 10
+            For i = 1 To 2
                 _handshakeClient.Send(hello, hello.Length)
                 _handshakeClient.Client.ReceiveTimeout = 1000
                 Try
@@ -813,26 +844,30 @@ Public Class Form1
                         If parts.Length >= 4 Then
                             codec = parts(3).Trim()
                         End If
-                        Dim videoUdp As New UdpClient(_portVideo)
-                        Dim audioUdp As New UdpClient(_portAudio)
-                        Thread.Sleep(500)
-                        Dim dummy As Byte() = {0, 0, 0, 0}
-                        For ii = 1 To 10
-                            videoUdp.Send(dummy, dummy.Length, New IPEndPoint(IPAddress.Parse(resolvedIP), _portVideo))
-                            audioUdp.Send(dummy, dummy.Length, New IPEndPoint(IPAddress.Parse(resolvedIP), _portAudio))
-                        Next
-                        Thread.Sleep(200)
+
+
+                        ' UDP Hole Punching:
+                        ' Bind to ephemeral ports so we don't conflict with host's bind on 55002/55003.
+                        ' Send exactly 1 HELLO from each socket to open the NAT hole and let
+                        ' the host observe our IP:Port via recvfrom().
+                        ' The incoming video/audio stream itself will keep the NAT session alive.
+                        Dim videoUdp As New UdpClient(0)
+                        Dim audioUdp As New UdpClient(0)
+
+                        Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
+                        If String.IsNullOrEmpty(nick) Then nick = _ircNick
+                        If String.IsNullOrEmpty(nick) Then nick = "guest"
+                        Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
+
+                        Dim helloStr = "HELLO:" & nameToWrite & "_" & _selectedSlot
+                        Dim helloMsg As Byte() = System.Text.Encoding.ASCII.GetBytes(helloStr)
+                        videoUdp.Send(helloMsg, helloMsg.Length, New IPEndPoint(IPAddress.Parse(resolvedIP), _portVideo))
+                        audioUdp.Send(helloMsg, helloMsg.Length, New IPEndPoint(IPAddress.Parse(resolvedIP), _portAudio))
+
                         Me.Invoke(Sub()
                                       SetStatus("CONNECTED", Color.FromArgb(0, 220, 100))
                                       btnDisconnect.Enabled = True
                                       StartReceiving(w, h, videoUdp, audioUdp, codec)
-
-                                      Dim nick = If(txtNick IsNot Nothing, txtNick.Text.Trim(), "")
-                                      If String.IsNullOrEmpty(nick) Then nick = _ircNick
-                                      If String.IsNullOrEmpty(nick) Then nick = "guest"
-                                      Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
-                                      'Dim taskUpdate = UpdateFirebaseSlotUserAsync(nameToWrite)
-                                      'Dim taskJoinMsg = _firebase.SendChatMessageAsync(_selectedHostId, "SYSTEM", $"<P{_selectedSlot}><{nameToWrite}> joined")
                                   End Sub)
                         Dim hbThread As New Thread(Sub()
                                                        Do While _running
