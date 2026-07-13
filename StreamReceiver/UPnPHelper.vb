@@ -17,31 +17,12 @@ Imports Mono.Nat
 
 Public Class UPnPHelper
     Public Shared Async Function OpenPorts(ParamArray ports() As Integer) As Task
-        Try
-            Dim tcs As New TaskCompletionSource(Of INatDevice)()
-
-            AddHandler NatUtility.DeviceFound, Sub(sender, args)
-                                                   tcs.TrySetResult(args.Device)
-                                               End Sub
-
-            NatUtility.StartDiscovery()
-
-            Dim cts As New Threading.CancellationTokenSource(5000)
-            cts.Token.Register(Sub() tcs.TrySetCanceled())
-
-            Dim device = Await tcs.Task
-            NatUtility.StopDiscovery()
-
-            For Each port In ports
-                Await device.CreatePortMapAsync(New Mapping(Protocol.Udp, port, port, 0, "Supermodel3"))
-                Debug.WriteLine($"[UPnP] Port {port} opened")
-            Next
-        Catch ex As Exception
-            Debug.WriteLine($"[UPnP] Failed: {ex.Message}")
-        End Try
+        ' [DISABLED] UDP Hole Punching is used instead of UPnP for outbound connections
+        Await Task.CompletedTask
     End Function
 
     Public Shared Async Function ClosePorts(ParamArray ports() As Integer) As Task
+        ' 起動時に以前のセッションで開いたポートを閉じる
         Try
             Dim tcs As New TaskCompletionSource(Of INatDevice)()
 
@@ -58,11 +39,15 @@ Public Class UPnPHelper
             NatUtility.StopDiscovery()
 
             For Each port In ports
-                Await device.DeletePortMapAsync(New Mapping(Protocol.Udp, port, port))
-                Debug.WriteLine($"[UPnP] Port {port} closed")
+                Try
+                    Await device.DeletePortMapAsync(New Mapping(Protocol.Udp, port, port))
+                    Debug.WriteLine($"[UPnP] Port {port} closed")
+                Catch ex As Exception
+                    Debug.WriteLine($"[UPnP] Port {port} close skipped: {ex.Message}")
+                End Try
             Next
         Catch ex As Exception
-            Debug.WriteLine($"[UPnP] Failed: {ex.Message}")
+            Debug.WriteLine($"[UPnP] ClosePorts failed: {ex.Message}")
         End Try
     End Function
 End Class

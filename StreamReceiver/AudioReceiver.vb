@@ -29,7 +29,6 @@ Public Class AudioReceiver
 
     Private ReadOnly SampleRate As Integer = 48000
     Private ReadOnly Channels As Integer = 2
-
     Public Sub New(udpClient As UdpClient)
         _udpClient = udpClient  ' 外から受け取る
     End Sub

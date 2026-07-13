@@ -48,7 +48,6 @@ Public Class VideoReceiver
     Public Event ServerDisconnected()
 
     Private _codec As String = "H265"
-
     Public Sub New(w As Integer, h As Integer, udpClient As UdpClient, Optional codec As String = "H265")
         Width = w
         Height = h
@@ -101,6 +100,7 @@ Public Class VideoReceiver
         ' _udpClient.Client を直接使う（UdpClient.Receiveより速い）
         Dim sock = _udpClient.Client
         sock.ReceiveTimeout = 10000
+
 
         Dim isH264 As Boolean = (_codec.ToUpper() = "H264")
         Dim lastSeq As Integer = -1

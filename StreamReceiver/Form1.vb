@@ -115,7 +115,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
-    Private version_s As String = "20260707"
+    Private version_s As String = "20260713"
 
     Public Sub New()
         InitializeComponent()
@@ -139,7 +139,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260707"
+        Me.Text = "STREAM RECEIVER V20260713"
         Me.ResumeLayout(False)
 
     End Sub
@@ -419,9 +419,6 @@ Public Class Form1
         Me.KeyPreview = True
         XInputSender.LoadConfig()
 
-        ' 起動時に以前開いたUPnPポートを閉じる（ホールパンチングに移行したため不要）
-        Await UPnPHelper.ClosePorts(55000, 55001, 55002, 55003)
-
         pnlVideo.Width = W
         pnlVideo.Height = H
         pnlVideo.Location = New Point(0, 0)
@@ -631,11 +628,8 @@ Public Class Form1
                 If host.Slots IsNot Nothing Then
                     For Each slotKvp In host.Slots
                         If slotKvp.Value.Available Then
-                            Dim uCount = 0
-                            If Not String.IsNullOrEmpty(slotKvp.Value.User) Then
-                                Dim users = slotKvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                                uCount = users.Length
-                            End If
+                            Dim uCount = If(Not String.IsNullOrEmpty(slotKvp.Value.Player), 1, 0) +
+                                         If(Not String.IsNullOrEmpty(slotKvp.Value.Spectator), 1, 0)
                             If slotKvp.Value.ClientCount < 2 AndAlso uCount < 2 Then
                                 cmbSlot.Items.Add($"P{slotKvp.Key.Replace("slot", "")}")
                             End If
@@ -667,11 +661,8 @@ Public Class Form1
         Dim slotKey = "slot" & slotIndex.ToString()
         If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
             Dim slotInfo = host.Slots(slotKey)
-            Dim uCount = 0
-            If Not String.IsNullOrEmpty(slotInfo.User) Then
-                Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                uCount = users.Length
-            End If
+            Dim uCount = If(Not String.IsNullOrEmpty(slotInfo.Player), 1, 0) +
+                         If(Not String.IsNullOrEmpty(slotInfo.Spectator), 1, 0)
             If slotInfo.ClientCount >= 2 OrElse uCount >= 2 Then
                 btnConnect.Enabled = False
                 SetStatus($"Slot P{slotIndex} is full (2 or more users). Connection blocked.", Color.FromArgb(255, 60, 60))
@@ -681,11 +672,8 @@ Public Class Form1
 
         If host.Slots IsNot Nothing Then
             For Each kvp In host.Slots
-                Dim uCount = 0
-                If Not String.IsNullOrEmpty(kvp.Value.User) Then
-                    Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                    uCount = users.Length
-                End If
+                Dim uCount = If(Not String.IsNullOrEmpty(kvp.Value.Player), 1, 0) +
+                             If(Not String.IsNullOrEmpty(kvp.Value.Spectator), 1, 0)
                 If kvp.Value.Available AndAlso kvp.Value.ClientCount < 2 AndAlso uCount < 2 Then
                     cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
                 End If
@@ -706,11 +694,8 @@ Public Class Form1
         If host.Slots Is Nothing Then Return
         For Each kvp In host.Slots
             If kvp.Value.Available Then
-                Dim uCount = 0
-                If Not String.IsNullOrEmpty(kvp.Value.User) Then
-                    Dim users = kvp.Value.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                    uCount = users.Length
-                End If
+                Dim uCount = If(Not String.IsNullOrEmpty(kvp.Value.Player), 1, 0) +
+                             If(Not String.IsNullOrEmpty(kvp.Value.Spectator), 1, 0)
                 If uCount < 2 AndAlso kvp.Value.ClientCount < 2 Then
                     cmbSlot.Items.Add($"P{kvp.Key.Replace("slot", "")}")
                 End If
@@ -756,9 +741,9 @@ Public Class Form1
 
         ' Double check slot occupancy on click
         Dim currentSlotUserCount = 0
-        If slotInfo IsNot Nothing AndAlso Not String.IsNullOrEmpty(slotInfo.User) Then
-            Dim users = slotInfo.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-            currentSlotUserCount = users.Length
+        If slotInfo IsNot Nothing Then
+            currentSlotUserCount = If(Not String.IsNullOrEmpty(slotInfo.Player), 1, 0) +
+                                   If(Not String.IsNullOrEmpty(slotInfo.Spectator), 1, 0)
         End If
         If slotInfo IsNot Nothing AndAlso (slotInfo.ClientCount >= 2 OrElse currentSlotUserCount >= 2) Then
             SetStatus($"Slot P{_selectedSlot} is full. Connection blocked.", Color.FromArgb(255, 60, 60))
@@ -776,9 +761,8 @@ Public Class Form1
                 If otherHost.Slots IsNot Nothing Then
                     For Each slotKvp In otherHost.Slots
                         Dim slotInfoItem = slotKvp.Value
-                        If slotInfoItem IsNot Nothing AndAlso Not String.IsNullOrEmpty(slotInfoItem.User) Then
-                            Dim users = slotInfoItem.User.Split(New String() {", "}, StringSplitOptions.RemoveEmptyEntries)
-                            If users.Contains(nameToWrite) Then
+                        If slotInfoItem IsNot Nothing Then
+                            If slotInfoItem.Player = nameToWrite OrElse slotInfoItem.Spectator = nameToWrite Then
                                 Dim otherServerName = If(String.IsNullOrEmpty(otherHost.ServerName), otherHost.Ip, otherHost.ServerName)
                                 Dim slotNum = slotKvp.Key.Replace("slot", "")
                                 SetStatus($"User '{nameToWrite}' is already in slot P{slotNum} on server '{otherServerName}'. Connection blocked.", Color.FromArgb(255, 60, 60))
@@ -822,7 +806,7 @@ Public Class Form1
             Debug.WriteLine($"[DNS] {ip} -> {resolvedIP}")
             _handshakeClient.Connect(resolvedIP, _portHS)
             Dim baseNick = If(String.IsNullOrEmpty(_discordUsername), "player", _discordUsername)
-            Dim discordNickToSend = baseNick & "_" & _selectedSlot
+            Dim discordNickToSend = baseNick
             Dim codecList As String = If(_useH265, "H265,H264", "H264")
             Dim hello() As Byte = System.Text.Encoding.ASCII.GetBytes("HELLO:" & discordNickToSend & ":" & codecList & ":" & _sessionId)
             Dim ep As New IPEndPoint(IPAddress.Any, 0)
@@ -859,7 +843,7 @@ Public Class Form1
                         If String.IsNullOrEmpty(nick) Then nick = "guest"
                         Dim nameToWrite = If(String.IsNullOrEmpty(_discordUsername), nick, _discordUsername)
 
-                        Dim helloStr = "HELLO:" & nameToWrite & "_" & _selectedSlot
+                        Dim helloStr = "HELLO:" & nameToWrite
                         Dim helloMsg As Byte() = System.Text.Encoding.ASCII.GetBytes(helloStr)
                         videoUdp.Send(helloMsg, helloMsg.Length, New IPEndPoint(IPAddress.Parse(resolvedIP), _portVideo))
                         audioUdp.Send(helloMsg, helloMsg.Length, New IPEndPoint(IPAddress.Parse(resolvedIP), _portAudio))
@@ -1571,9 +1555,11 @@ Public Class Form1
                         Dim slotKey = "slot" & colIndex.ToString()
                         If host.Slots IsNot Nothing AndAlso host.Slots.ContainsKey(slotKey) Then
                             Dim slot = host.Slots(slotKey)
-                            Dim username = slot.User
-                            If Not String.IsNullOrEmpty(username) Then
-                                _tooltip.Show($"User: {username}", lvHosts, e.X + 15, e.Y + 15, 3000)
+                            Dim tipLines As New System.Text.StringBuilder
+                            If Not String.IsNullOrEmpty(slot.Player) Then tipLines.AppendLine($"Player: {slot.Player}")
+                            If Not String.IsNullOrEmpty(slot.Spectator) Then tipLines.AppendLine($"Spectator: {slot.Spectator}")
+                            If tipLines.Length > 0 Then
+                                _tooltip.Show(tipLines.ToString().TrimEnd(), lvHosts, e.X + 15, e.Y + 15, 3000)
                             Else
                                 _tooltip.Hide(lvHosts)
                             End If

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ponmi-arcade",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:\\Users\\vf2_c\\.gemini\\antigravity\\scratch\\PonMiArcade\\server.js"],
+      "port": 3000
+    }
+  ]
+}
