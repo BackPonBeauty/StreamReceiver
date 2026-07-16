@@ -38,7 +38,6 @@ Public Class XInputSender
     Private _endPoint As IPEndPoint
     Private _running As Boolean
     Private _thread As Thread
-    Private _pktBuf(19) As Byte  ' 送信バッファ再利用（GC削減）
 
     ' Keyboard fallback state
     Private Shared _pressedKeys As New HashSet(Of Keys)()
@@ -193,20 +192,21 @@ Public Class XInputSender
         timeBeginPeriod(1)
         Try
             While _running
+                Dim pkt() As Byte
                 If _controller.IsConnected Then
                     Try
                         Dim state As State
                         _controller.GetState(state)
-                        FillMappedGamepadPacket(state.Gamepad)
+                        pkt = GetMappedGamepadPacket(state.Gamepad)
                     Catch ex As Exception
-                        FillKeyboardStatePacket()
+                        pkt = GetKeyboardStatePacket()
                     End Try
                 Else
-                    FillKeyboardStatePacket()
+                    pkt = GetKeyboardStatePacket()
                 End If
-                _udpClient.Send(_pktBuf, _pktBuf.Length, _endPoint)
+                _udpClient.Send(pkt, pkt.Length, _endPoint)
 
-                Thread.Sleep(1)
+                Thread.Sleep(8)
             End While
         Finally
             timeEndPeriod(1)
@@ -255,7 +255,7 @@ Public Class XInputSender
         Return Nothing
     End Function
 
-    Private Sub FillMappedGamepadPacket(g As Gamepad)
+    Private Function GetMappedGamepadPacket(g As Gamepad) As Byte()
         Dim buttons As UShort = 0
         Dim leftTrigger As Byte = 0
         Dim rightTrigger As Byte = 0
@@ -292,18 +292,20 @@ Public Class XInputSender
         If IsPadActionActive(g, "RStickLeft") Then thumbRX = -32768
         If IsPadActionActive(g, "RStickRight") Then thumbRX = 32767
 
-        _pktBuf(0) = CByte(buttons And &HFF)
-        _pktBuf(1) = CByte((buttons >> 8) And &HFF)
-        _pktBuf(2) = leftTrigger
-        _pktBuf(3) = rightTrigger
-        BitConverter.GetBytes(thumbLX).CopyTo(_pktBuf, 4)
-        BitConverter.GetBytes(thumbLY).CopyTo(_pktBuf, 6)
-        BitConverter.GetBytes(thumbRX).CopyTo(_pktBuf, 8)
-        BitConverter.GetBytes(thumbRY).CopyTo(_pktBuf, 10)
+        Dim buf(19) As Byte
+        buf(0) = CByte(buttons And &HFF)
+        buf(1) = CByte((buttons >> 8) And &HFF)
+        buf(2) = leftTrigger
+        buf(3) = rightTrigger
+        BitConverter.GetBytes(thumbLX).CopyTo(buf, 4)
+        BitConverter.GetBytes(thumbLY).CopyTo(buf, 6)
+        BitConverter.GetBytes(thumbRX).CopyTo(buf, 8)
+        BitConverter.GetBytes(thumbRY).CopyTo(buf, 10)
         Dim mk As UShort
         SyncLock _metaLock : mk = _metaKeys : End SyncLock
-        BitConverter.GetBytes(mk).CopyTo(_pktBuf, 12)
-    End Sub
+        BitConverter.GetBytes(mk).CopyTo(buf, 12)
+        Return buf
+    End Function
 
     Private Function IsPadActionActive(g As Gamepad, action As String) As Boolean
         If Not PadMapping.ContainsKey(action) Then Return False
@@ -347,7 +349,7 @@ Public Class XInputSender
         Return False
     End Function
 
-    Private Sub FillKeyboardStatePacket()
+    Private Function GetKeyboardStatePacket() As Byte()
         Dim buttons As UShort = 0
         Dim leftTrigger As Byte = 0
         Dim rightTrigger As Byte = 0
@@ -386,18 +388,20 @@ Public Class XInputSender
             If IsKeyPressed("RStickRight") Then thumbRX = 32767
         End SyncLock
 
-        _pktBuf(0) = CByte(buttons And &HFF)
-        _pktBuf(1) = CByte((buttons >> 8) And &HFF)
-        _pktBuf(2) = leftTrigger
-        _pktBuf(3) = rightTrigger
-        BitConverter.GetBytes(thumbLX).CopyTo(_pktBuf, 4)
-        BitConverter.GetBytes(thumbLY).CopyTo(_pktBuf, 6)
-        BitConverter.GetBytes(thumbRX).CopyTo(_pktBuf, 8)
-        BitConverter.GetBytes(thumbRY).CopyTo(_pktBuf, 10)
+        Dim buf(19) As Byte
+        buf(0) = CByte(buttons And &HFF)
+        buf(1) = CByte((buttons >> 8) And &HFF)
+        buf(2) = leftTrigger
+        buf(3) = rightTrigger
+        BitConverter.GetBytes(thumbLX).CopyTo(buf, 4)
+        BitConverter.GetBytes(thumbLY).CopyTo(buf, 6)
+        BitConverter.GetBytes(thumbRX).CopyTo(buf, 8)
+        BitConverter.GetBytes(thumbRY).CopyTo(buf, 10)
         Dim mk As UShort
         SyncLock _metaLock : mk = _metaKeys : End SyncLock
-        BitConverter.GetBytes(mk).CopyTo(_pktBuf, 12)
-    End Sub
+        BitConverter.GetBytes(mk).CopyTo(buf, 12)
+        Return buf
+    End Function
 
     Private Function IsKeyPressed(action As String) As Boolean
         If KeyMapping.ContainsKey(action) Then
