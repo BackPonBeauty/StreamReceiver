@@ -115,7 +115,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
-    Private version_s As String = "20260713"
+    Private version_s As String = "20260716"
 
     Public Sub New()
         InitializeComponent()
@@ -139,7 +139,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260713"
+        Me.Text = "STREAM RECEIVER V20260716"
         Me.ResumeLayout(False)
 
     End Sub
