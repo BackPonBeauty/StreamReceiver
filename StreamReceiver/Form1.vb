@@ -139,7 +139,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260713"
+        Me.Text = "STREAM RECEIVER V20260716"
         Me.ResumeLayout(False)
 
     End Sub
@@ -446,7 +446,7 @@ Public Class Form1
             Dim inviteUrl = DiscordAuth.GetInviteUrl()
             Dim msg = $"To connect to the host, you must join our Discord server.{vbCrLf}{vbCrLf}Current User: {authResult.Username}{vbCrLf}{vbCrLf}Would you like to join the server?"
             Dim dialogResult = MessageBox.Show(msg, "Not a Server Member", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
-            If dialogResult = dialogResult.Yes AndAlso Not String.IsNullOrEmpty(inviteUrl) AndAlso inviteUrl.StartsWith("http") Then
+            If dialogResult = DialogResult.Yes AndAlso Not String.IsNullOrEmpty(inviteUrl) AndAlso inviteUrl.StartsWith("http") Then
                 Try
                     Process.Start(inviteUrl)
                 Catch ex As Exception
