@@ -139,7 +139,7 @@ Public Class Form1
         Me.KeyPreview = True
         Me.Name = "Form1"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "STREAM RECEIVER V20260716"
+        Me.Text = "STREAM RECEIVER V20260731"
         Me.ResumeLayout(False)
 
     End Sub
