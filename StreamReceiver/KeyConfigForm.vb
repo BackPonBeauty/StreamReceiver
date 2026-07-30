@@ -2,6 +2,7 @@ Imports System.Drawing
 Imports System.Windows.Forms
 Imports System.Collections.Generic
 Imports SharpDX.XInput
+Imports SharpDX.DirectInput
 
 Public Class KeyConfigForm
     Inherits Form
@@ -20,6 +21,8 @@ Public Class KeyConfigForm
     Private btnCancel As CyberButton
 
     Private _controller As Controller
+    Private _directInput As DirectInput
+    Private _dinputJoystick As Joystick
     Private _pollTimer As Timer
 
     Public Sub New()
@@ -39,8 +42,25 @@ Public Class KeyConfigForm
         _tempKeyMapping = New Dictionary(Of String, Keys)(XInputSender.KeyMapping)
         _tempPadMapping = New Dictionary(Of String, String)(XInputSender.PadMapping)
 
-        ' Initialize XInput controller for polling configuration inputs
+        ' Initialize XInput & DirectInput controller for polling configuration inputs
         _controller = New Controller(UserIndex.One)
+        Try
+            _directInput = New DirectInput()
+            Dim devices = _directInput.GetDevices(SharpDX.DirectInput.DeviceType.Gamepad, DeviceEnumerationFlags.AllDevices)
+            Dim targetGuid As Guid = Guid.Empty
+            If devices.Count > 0 Then
+                targetGuid = devices(0).InstanceGuid
+            Else
+                Dim joyDevices = _directInput.GetDevices(SharpDX.DirectInput.DeviceType.Joystick, DeviceEnumerationFlags.AllDevices)
+                If joyDevices.Count > 0 Then targetGuid = joyDevices(0).InstanceGuid
+            End If
+            If targetGuid <> Guid.Empty Then
+                _dinputJoystick = New Joystick(_directInput, targetGuid)
+                _dinputJoystick.SetCooperativeLevel(Me.Handle, CooperativeLevel.Background Or CooperativeLevel.NonExclusive)
+                _dinputJoystick.Acquire()
+            End If
+        Catch
+        End Try
 
         BuildUI()
 
@@ -252,43 +272,58 @@ Public Class KeyConfigForm
 
     Private Sub PollTimer_Tick(sender As Object, e As EventArgs)
         If String.IsNullOrEmpty(_waitingPadAction) Then Return
-        If Not _controller.IsConnected Then Return
 
-        Try
-            Dim state As State
-            _controller.GetState(state)
+        Dim activeInput As String = Nothing
 
-            Dim activeInput = XInputSender.ScanActiveControllerInput(state.Gamepad)
-            If Not String.IsNullOrEmpty(activeInput) Then
-                ' Duplicate check and override logic
-                Dim duplicateAction As String = ""
-                For Each kvp In _tempPadMapping
-                    If kvp.Key <> _waitingPadAction AndAlso kvp.Value = activeInput Then
-                        duplicateAction = kvp.Key
-                        Exit For
-                    End If
-                Next
+        ' Try XInput
+        If _controller IsNot Nothing AndAlso _controller.IsConnected Then
+            Try
+                Dim state As State
+                _controller.GetState(state)
+                activeInput = XInputSender.ScanActiveControllerInput(state.Gamepad)
+            Catch
+            End Try
+        End If
 
-                If Not String.IsNullOrEmpty(duplicateAction) Then
-                    ' Clear the duplicated pad assignment (override)
-                    _tempPadMapping(duplicateAction) = "NONE"
-                    If _padButtons.ContainsKey(duplicateAction) Then
-                        _padButtons(duplicateAction).Text = "NONE"
-                    End If
+        ' Try DirectInput if XInput yielded no input
+        If String.IsNullOrEmpty(activeInput) AndAlso _dinputJoystick IsNot Nothing Then
+            Try
+                _dinputJoystick.Poll()
+                Dim dState = _dinputJoystick.GetCurrentState()
+                activeInput = XInputSender.ScanActiveDInputInput(dState)
+            Catch
+                Try : _dinputJoystick.Acquire() : Catch : End Try
+            End Try
+        End If
+
+        If Not String.IsNullOrEmpty(activeInput) Then
+            ' Duplicate check and override logic
+            Dim duplicateAction As String = ""
+            For Each kvp In _tempPadMapping
+                If kvp.Key <> _waitingPadAction AndAlso kvp.Value = activeInput Then
+                    duplicateAction = kvp.Key
+                    Exit For
                 End If
+            Next
 
-                ' Assign pad input
-                _tempPadMapping(_waitingPadAction) = activeInput
-                _padButtons(_waitingPadAction).Text = activeInput
-                _padButtons(_waitingPadAction).GlowColor = Color.FromArgb(0, 180, 220)
-                _waitingPadAction = ""
+            If Not String.IsNullOrEmpty(duplicateAction) Then
+                ' Clear the duplicated pad assignment (override)
+                _tempPadMapping(duplicateAction) = "NONE"
+                If _padButtons.ContainsKey(duplicateAction) Then
+                    _padButtons(duplicateAction).Text = "NONE"
+                End If
             End If
-        Catch
-        End Try
+
+            ' Assign pad input
+            _tempPadMapping(_waitingPadAction) = activeInput
+            _padButtons(_waitingPadAction).Text = activeInput
+            _padButtons(_waitingPadAction).GlowColor = Color.FromArgb(0, 180, 220)
+            _waitingPadAction = ""
+        End If
     End Sub
 
     Private Sub btnSave_Click(sender As Object, e As EventArgs)
-        _pollTimer?.Stop()
+        Cleanup()
         XInputSender.KeyMapping = New Dictionary(Of String, Keys)(_tempKeyMapping)
         XInputSender.PadMapping = New Dictionary(Of String, String)(_tempPadMapping)
         XInputSender.SaveConfig()
@@ -297,13 +332,33 @@ Public Class KeyConfigForm
     End Sub
 
     Private Sub btnCancel_Click(sender As Object, e As EventArgs)
-        _pollTimer?.Stop()
+        Cleanup()
         Me.DialogResult = DialogResult.Cancel
         Me.Close()
     End Sub
 
+    Private Sub Cleanup()
+        If _pollTimer IsNot Nothing Then
+            _pollTimer.Stop()
+            _pollTimer.Dispose()
+            _pollTimer = Nothing
+        End If
+        Try
+            If _dinputJoystick IsNot Nothing Then
+                _dinputJoystick.Unacquire()
+                _dinputJoystick.Dispose()
+                _dinputJoystick = Nothing
+            End If
+            If _directInput IsNot Nothing Then
+                _directInput.Dispose()
+                _directInput = Nothing
+            End If
+        Catch
+        End Try
+    End Sub
+
     Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
-        _pollTimer?.Stop()
+        Cleanup()
         MyBase.OnFormClosing(e)
     End Sub
 End Class

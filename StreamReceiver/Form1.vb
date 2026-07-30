@@ -115,7 +115,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
-    Private version_s As String = "20260716"
+    Private version_s As String = "20260720"
 
     Public Sub New()
         InitializeComponent()
@@ -720,19 +720,6 @@ Public Class Form1
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs)
         If _selectedHostId = "" OrElse cmbSlot.SelectedItem Is Nothing Then Return
 
-        ' ffmpeg 存在チェック → なければ自動ダウンロード
-        If FfmpegHelper.GetFfmpegPath() Is Nothing Then
-            btnConnect.Enabled = False
-            SetStatus("⏬ ffmpeg をダウンロードしています...", Color.Cyan)
-            Dim prog = New Progress(Of String)(Sub(msg) SetStatus(msg, Color.Cyan))
-            Dim ok = Await FfmpegHelper.EnsureFfmpegAsync(prog)
-            If Not ok Then
-                SetStatus("❌ ffmpeg のダウンロードに失敗しました", Color.Red)
-                btnConnect.Enabled = True
-                Return
-            End If
-        End If
-
         Dim slotStr = cmbSlot.SelectedItem.ToString().Replace("P", "")
         _selectedSlot = CInt(slotStr)
         Dim slotKey = "slot" & slotStr
@@ -983,7 +970,7 @@ Public Class Form1
         Return -1  ' 到達不可
     End Function
 
-    Private Sub StartReceiving(w As Integer, h As Integer, udp4 As UdpClient, udp5 As UdpClient, codec As String)
+    Private Async Sub StartReceiving(w As Integer, h As Integer, udp4 As UdpClient, udp5 As UdpClient, codec As String)
         pnlHostList.Visible = False
         pnlConnect.Visible = False
         lblStatus.Visible = False
@@ -1014,6 +1001,17 @@ Public Class Form1
                  End Function)
         'Me.ClientSize = New Size(w, h)
         _renderer = New DxRenderer(pnlVideo.Handle, w, h)
+
+        ' ffmpeg 存在チェック → なければ自動ダウンロード（ハンドシェイク後に行う）
+        If FfmpegHelper.GetFfmpegPath() Is Nothing Then
+            SetStatus("⏬ ffmpeg をダウンロードしています...", Color.Cyan)
+            Dim prog = New Progress(Of String)(Sub(msg) SetStatus(msg, Color.Cyan))
+            Dim ok = Await FfmpegHelper.EnsureFfmpegAsync(prog)
+            If Not ok Then
+                SetStatus("❌ ffmpeg のダウンロードに失敗しました（映像なし）", Color.Red)
+            End If
+        End If
+
         _video = New VideoReceiver(w, h, udp4, codec)
         _audio = New AudioReceiver(udp5)
         AddHandler _video.ServerDisconnected, Sub()
