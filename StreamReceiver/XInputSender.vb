@@ -418,18 +418,47 @@ Public Class XInputSender
         If IsPadActionActive(g, "X") Then buttons = buttons Or &H4000
         If IsPadActionActive(g, "Y") Then buttons = buttons Or &H8000
 
-        If IsPadActionActive(g, "LTrigger") Then leftTrigger = 255
-        If IsPadActionActive(g, "RTrigger") Then rightTrigger = 255
+        ' Triggers: PadMappingがトリガー軸ならば実値(0-255)を送る
+        Dim lTrigPhys = If(PadMapping.ContainsKey("LTrigger"), PadMapping("LTrigger"), "LTrigger")
+        If lTrigPhys = "LTrigger" Then
+            leftTrigger = g.LeftTrigger
+        ElseIf IsPadActionActive(g, "LTrigger") Then
+            leftTrigger = 255
+        End If
+        Dim rTrigPhys = If(PadMapping.ContainsKey("RTrigger"), PadMapping("RTrigger"), "RTrigger")
+        If rTrigPhys = "RTrigger" Then
+            rightTrigger = g.RightTrigger
+        ElseIf IsPadActionActive(g, "RTrigger") Then
+            rightTrigger = 255
+        End If
 
-        If IsPadActionActive(g, "LStickUp") Then thumbLY = 32767
-        If IsPadActionActive(g, "LStickDown") Then thumbLY = -32768
-        If IsPadActionActive(g, "LStickLeft") Then thumbLX = -32768
-        If IsPadActionActive(g, "LStickRight") Then thumbLX = 32767
+        ' Left Stick: PadMappingがスティック軸ならば実アナログ値(デッドゾーン4000)を送る
+        Const LStickDeadzone As Integer = 4000
+        Dim lsLeftPhys = If(PadMapping.ContainsKey("LStickLeft"), PadMapping("LStickLeft"), "LStickLeft")
+        Dim lsUpPhys = If(PadMapping.ContainsKey("LStickUp"), PadMapping("LStickUp"), "LStickUp")
+        If lsLeftPhys.Contains("LStick") OrElse lsUpPhys.Contains("LStick") Then
+            If Math.Abs(CInt(g.LeftThumbX)) > LStickDeadzone Then thumbLX = g.LeftThumbX
+            If Math.Abs(CInt(g.LeftThumbY)) > LStickDeadzone Then thumbLY = g.LeftThumbY
+        Else
+            If IsPadActionActive(g, "LStickUp") Then thumbLY = 32767
+            If IsPadActionActive(g, "LStickDown") Then thumbLY = -32768
+            If IsPadActionActive(g, "LStickLeft") Then thumbLX = -32768
+            If IsPadActionActive(g, "LStickRight") Then thumbLX = 32767
+        End If
 
-        If IsPadActionActive(g, "RStickUp") Then thumbRY = 32767
-        If IsPadActionActive(g, "RStickDown") Then thumbRY = -32768
-        If IsPadActionActive(g, "RStickLeft") Then thumbRX = -32768
-        If IsPadActionActive(g, "RStickRight") Then thumbRX = 32767
+        ' Right Stick: 同様
+        Const RStickDeadzone As Integer = 4000
+        Dim rsLeftPhys = If(PadMapping.ContainsKey("RStickLeft"), PadMapping("RStickLeft"), "RStickLeft")
+        Dim rsUpPhys = If(PadMapping.ContainsKey("RStickUp"), PadMapping("RStickUp"), "RStickUp")
+        If rsLeftPhys.Contains("RStick") OrElse rsUpPhys.Contains("RStick") Then
+            If Math.Abs(CInt(g.RightThumbX)) > RStickDeadzone Then thumbRX = g.RightThumbX
+            If Math.Abs(CInt(g.RightThumbY)) > RStickDeadzone Then thumbRY = g.RightThumbY
+        Else
+            If IsPadActionActive(g, "RStickUp") Then thumbRY = 32767
+            If IsPadActionActive(g, "RStickDown") Then thumbRY = -32768
+            If IsPadActionActive(g, "RStickLeft") Then thumbRX = -32768
+            If IsPadActionActive(g, "RStickRight") Then thumbRX = 32767
+        End If
 
         Dim buf(19) As Byte
         buf(0) = CByte(buttons And &HFF)
