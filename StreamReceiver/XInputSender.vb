@@ -418,18 +418,47 @@ Public Class XInputSender
         If IsPadActionActive(g, "X") Then buttons = buttons Or &H4000
         If IsPadActionActive(g, "Y") Then buttons = buttons Or &H8000
 
-        If IsPadActionActive(g, "LTrigger") Then leftTrigger = 255
-        If IsPadActionActive(g, "RTrigger") Then rightTrigger = 255
+        ' Triggers: PadMappingがトリガー軸ならば実値(0-255)を送る
+        Dim lTrigPhys = If(PadMapping.ContainsKey("LTrigger"), PadMapping("LTrigger"), "LTrigger")
+        If lTrigPhys = "LTrigger" Then
+            leftTrigger = g.LeftTrigger
+        ElseIf IsPadActionActive(g, "LTrigger") Then
+            leftTrigger = 255
+        End If
+        Dim rTrigPhys = If(PadMapping.ContainsKey("RTrigger"), PadMapping("RTrigger"), "RTrigger")
+        If rTrigPhys = "RTrigger" Then
+            rightTrigger = g.RightTrigger
+        ElseIf IsPadActionActive(g, "RTrigger") Then
+            rightTrigger = 255
+        End If
 
-        If IsPadActionActive(g, "LStickUp") Then thumbLY = 32767
-        If IsPadActionActive(g, "LStickDown") Then thumbLY = -32768
-        If IsPadActionActive(g, "LStickLeft") Then thumbLX = -32768
-        If IsPadActionActive(g, "LStickRight") Then thumbLX = 32767
+        ' Left Stick: PadMappingがスティック軸ならば実アナログ値(デッドゾーン4000)を送る
+        Const LStickDeadzone As Integer = 4000
+        Dim lsLeftPhys = If(PadMapping.ContainsKey("LStickLeft"), PadMapping("LStickLeft"), "LStickLeft")
+        Dim lsUpPhys = If(PadMapping.ContainsKey("LStickUp"), PadMapping("LStickUp"), "LStickUp")
+        If lsLeftPhys.Contains("LStick") OrElse lsUpPhys.Contains("LStick") Then
+            If Math.Abs(CInt(g.LeftThumbX)) > LStickDeadzone Then thumbLX = g.LeftThumbX
+            If Math.Abs(CInt(g.LeftThumbY)) > LStickDeadzone Then thumbLY = g.LeftThumbY
+        Else
+            If IsPadActionActive(g, "LStickUp") Then thumbLY = 32767
+            If IsPadActionActive(g, "LStickDown") Then thumbLY = -32768
+            If IsPadActionActive(g, "LStickLeft") Then thumbLX = -32768
+            If IsPadActionActive(g, "LStickRight") Then thumbLX = 32767
+        End If
 
-        If IsPadActionActive(g, "RStickUp") Then thumbRY = 32767
-        If IsPadActionActive(g, "RStickDown") Then thumbRY = -32768
-        If IsPadActionActive(g, "RStickLeft") Then thumbRX = -32768
-        If IsPadActionActive(g, "RStickRight") Then thumbRX = 32767
+        ' Right Stick: 同様
+        Const RStickDeadzone As Integer = 4000
+        Dim rsLeftPhys = If(PadMapping.ContainsKey("RStickLeft"), PadMapping("RStickLeft"), "RStickLeft")
+        Dim rsUpPhys = If(PadMapping.ContainsKey("RStickUp"), PadMapping("RStickUp"), "RStickUp")
+        If rsLeftPhys.Contains("RStick") OrElse rsUpPhys.Contains("RStick") Then
+            If Math.Abs(CInt(g.RightThumbX)) > RStickDeadzone Then thumbRX = g.RightThumbX
+            If Math.Abs(CInt(g.RightThumbY)) > RStickDeadzone Then thumbRY = g.RightThumbY
+        Else
+            If IsPadActionActive(g, "RStickUp") Then thumbRY = 32767
+            If IsPadActionActive(g, "RStickDown") Then thumbRY = -32768
+            If IsPadActionActive(g, "RStickLeft") Then thumbRX = -32768
+            If IsPadActionActive(g, "RStickRight") Then thumbRX = 32767
+        End If
 
         Dim buf(19) As Byte
         buf(0) = CByte(buttons And &HFF)
@@ -551,7 +580,11 @@ Public Class XInputSender
         Dim thumbRX As Short = 0
         Dim thumbRY As Short = 0
 
-        ' 1. Buttons (Face, Shoulder, Start, Back, Thumb clicks)
+        ' 1. Buttons (Face, Shoulder, DPad, Start, Back, Thumb clicks)
+        If IsDInputActionActive(state, "DpadUp")    Then buttons = buttons Or &H1
+        If IsDInputActionActive(state, "DpadDown")  Then buttons = buttons Or &H2
+        If IsDInputActionActive(state, "DpadLeft")  Then buttons = buttons Or &H4
+        If IsDInputActionActive(state, "DpadRight") Then buttons = buttons Or &H8
         If IsDInputActionActive(state, "Start") Then buttons = buttons Or &H10
         If IsDInputActionActive(state, "Back") Then buttons = buttons Or &H20
         If IsDInputActionActive(state, "LThumb") Then buttons = buttons Or &H40
@@ -566,38 +599,16 @@ Public Class XInputSender
         If IsDInputActionActive(state, "LTrigger") Then leftTrigger = 255
         If IsDInputActionActive(state, "RTrigger") Then rightTrigger = 255
 
-        ' 2. DInput Axes and POV to XInput DPad & Left Stick mapping
+        ' 2. Left Stick: X/Y軸をアナログ値として変換（DPadとは独立）
+        ' DirectInput: 0-65535 (center 32768) → XInput: -32768 to 32767
         Dim rawX = CInt(state.X) - 32768
-        Dim rawY = 32767 - CInt(state.Y)
+        Dim rawY = 32767 - CInt(state.Y)  ' Y軸反転
         Const AxisDeadzone As Integer = 4000
 
-        ' Check DInput POV (PointOfViewControllers / Hat)
-        Dim povVal As Integer = -1
-        Dim povs = state.PointOfViewControllers
-        If povs IsNot Nothing AndAlso povs.Length > 0 Then
-            povVal = povs(0)
-        End If
-
-        ' If Logicool DirectInput D-Pad operates as X/Y Axis (Digital Mode Off):
-        ' Assign X/Y Axis -> XInput DPad
-        If Math.Abs(rawX) > 15000 OrElse Math.Abs(rawY) > 15000 Then
-            If rawY > 15000 Then buttons = buttons Or &H1   ' DpadUp
-            If rawY < -15000 Then buttons = buttons Or &H2  ' DpadDown
-            If rawX < -15000 Then buttons = buttons Or &H4  ' DpadLeft
-            If rawX > 15000 Then buttons = buttons Or &H8   ' DpadRight
-        End If
-
-        ' Also assign POV (Hat) -> XInput DPad (in case Digital Mode ON)
-        If povVal >= 0 AndAlso povVal < 36000 Then
-            If povVal >= 31500 OrElse povVal <= 4500 Then buttons = buttons Or &H1   ' DpadUp
-            If povVal >= 4500 AndAlso povVal <= 13500 Then buttons = buttons Or &H8  ' DpadRight
-            If povVal >= 13500 AndAlso povVal <= 22500 Then buttons = buttons Or &H2 ' DpadDown
-            If povVal >= 22500 AndAlso povVal <= 31500 Then buttons = buttons Or &H4 ' DpadLeft
-        End If
-
-        ' Assign Left Stick (LStick) from X/Y axis continuous values if not acting as Dpad or if analog values present
         If Math.Abs(rawX) > AxisDeadzone Then thumbLX = CShort(Math.Max(-32768, Math.Min(32767, rawX)))
         If Math.Abs(rawY) > AxisDeadzone Then thumbLY = CShort(Math.Max(-32768, Math.Min(32767, rawY)))
+
+
 
         ' 3. Right Stick (Logicool Dual Action: Z=RX, RotationZ=RY, or RotationX/Y)
         ' Increase deadzone to 12000 to prevent center drift / stuck inputs
@@ -661,7 +672,7 @@ Public Class XInputSender
         Dim thumbLY As Short = BitConverter.ToInt16(buf, 6)
         Dim thumbRX As Short = BitConverter.ToInt16(buf, 8)
         Dim thumbRY As Short = BitConverter.ToInt16(buf, 10)
-        If Math.Abs(thumbLX) > 4000 OrElse Math.Abs(thumbLY) > 4000 OrElse Math.Abs(thumbRX) > 4000 OrElse Math.Abs(thumbRY) > 4000 Then
+        If Math.Abs(CInt(thumbLX)) > 4000 OrElse Math.Abs(CInt(thumbLY)) > 4000 OrElse Math.Abs(CInt(thumbRX)) > 4000 OrElse Math.Abs(CInt(thumbRY)) > 4000 Then
             Return True
         End If
         Return False

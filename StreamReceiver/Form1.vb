@@ -115,6 +115,7 @@ Public Class Form1
     Private _processedChatKeys As New HashSet(Of String)()
 
     Public _isLocalMode As Boolean = False
+    Friend WithEvents Label1 As Label
     Private version_s As String = "20260720"
 
     Public Sub New()
@@ -127,12 +128,23 @@ Public Class Form1
 
     Private Sub InitializeComponent()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(Form1))
+        Me.Label1 = New System.Windows.Forms.Label()
         Me.SuspendLayout()
+        '
+        'Label1
+        '
+        Me.Label1.Location = New System.Drawing.Point(12, 546)
+        Me.Label1.Name = "Label1"
+        Me.Label1.Size = New System.Drawing.Size(67, 14)
+        Me.Label1.TabIndex = 0
+        Me.Label1.Text = "99999"
+        Me.Label1.TextAlign = System.Drawing.ContentAlignment.MiddleRight
         '
         'Form1
         '
         Me.BackColor = System.Drawing.Color.FromArgb(CType(CType(10, Byte), Integer), CType(CType(14, Byte), Integer), CType(CType(26, Byte), Integer))
-        Me.ClientSize = New System.Drawing.Size(960, 540)
+        Me.ClientSize = New System.Drawing.Size(960, 569)
+        Me.Controls.Add(Me.Label1)
         Me.Font = New System.Drawing.Font("Consolas", 9.0!)
         Me.ForeColor = System.Drawing.Color.FromArgb(CType(CType(0, Byte), Integer), CType(CType(238, Byte), Integer), CType(CType(255, Byte), Integer))
         Me.Icon = CType(resources.GetObject("$this.Icon"), System.Drawing.Icon)
